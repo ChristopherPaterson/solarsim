@@ -39,8 +39,7 @@ export class Renderer {
   private sunLight: THREE.PointLight;
   private unit = new THREE.SphereGeometry(1, 48, 24);
   private sunIdx = 0;
-  private orbits: { idx: number; line: THREE.Line; scratch: Float64Array }[] = [];
-  private muSun = 1.32712440018e20;
+  private orbits: { idx: number; centerIdx: number; mu: number; line: THREE.Line; scratch: Float64Array }[] = [];
   showOrbits = true;
   starField: StarField | null = null;
   isWebGPU = false;
@@ -100,10 +99,13 @@ export class Renderer {
       this.scene.add(mesh);
       this.bodies.push({ def, mesh });
     });
-    this.muSun = defs[this.sunIdx].gm;
-    // Orbit paths for heliocentric bodies (planets: no parent, not the Sun).
+    const idOf = (id: string) => defs.findIndex((d) => d.id === id);
+    // Orbit paths: planets about the Sun, satellites about their parent body.
     defs.forEach((def, i) => {
-      if (i === this.sunIdx || def.parent) return;
+      if (i === this.sunIdx) return;
+      const centerIdx = def.parent ? idOf(def.parent) : this.sunIdx;
+      if (centerIdx < 0) return;
+      const mu = defs[centerIdx].gm;
       const geom = new THREE.BufferGeometry();
       // N+1 points: the loop is closed by repeating the first vertex (WebGPU-
       // Renderer has no LineLoop).
@@ -112,20 +114,18 @@ export class Renderer {
       const line = new THREE.Line(geom, mat);
       line.frustumCulled = false; // spans the whole orbit; culling by centre is wrong
       this.scene.add(line);
-      this.orbits.push({ idx: i, line, scratch: new Float64Array(ORBIT_SEGMENTS * 3) });
+      this.orbits.push({ idx: i, centerIdx, mu, line, scratch: new Float64Array(ORBIT_SEGMENTS * 3) });
     });
   }
 
   private updateOrbits(state: Float64Array): void {
-    const sb = this.sunIdx * 6;
-    const sun = this.bodies[this.sunIdx].mesh.position;
     const r = new Float64Array(3), v = new Float64Array(3);
     for (const o of this.orbits) {
       o.line.visible = this.showOrbits;
       if (!this.showOrbits) continue;
-      const b = o.idx * 6;
-      for (let k = 0; k < 3; k++) { r[k] = state[b + k] - state[sb + k]; v[k] = state[b + 3 + k] - state[sb + 3 + k]; }
-      if (!sampleOrbitPathRV(r, v, this.muSun, ORBIT_SEGMENTS, o.scratch)) { o.line.visible = false; continue; }
+      const b = o.idx * 6, cb = o.centerIdx * 6;
+      for (let k = 0; k < 3; k++) { r[k] = state[b + k] - state[cb + k]; v[k] = state[b + 3 + k] - state[cb + 3 + k]; }
+      if (!sampleOrbitPathRV(r, v, o.mu, ORBIT_SEGMENTS, o.scratch)) { o.line.visible = false; continue; }
       const pos = o.line.geometry.getAttribute('position') as THREE.BufferAttribute;
       const arr = pos.array as Float32Array;
       for (let k = 0; k < o.scratch.length; k++) arr[k] = o.scratch[k];
@@ -133,7 +133,7 @@ export class Renderer {
       arr[o.scratch.length + 1] = o.scratch[1];
       arr[o.scratch.length + 2] = o.scratch[2];
       pos.needsUpdate = true;
-      o.line.position.copy(sun); // heliocentric points + Sun scene position
+      o.line.position.copy(this.bodies[o.centerIdx].mesh.position); // centre-relative points + centre scene position
     }
   }
 
