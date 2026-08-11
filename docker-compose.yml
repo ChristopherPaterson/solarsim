@@ -1,0 +1,13 @@
+# SolarSim static host. Serves the built ./dist over the LAN.
+# Rebuild the app with `npm run build`; a browser refresh picks it up
+# (no image rebuild needed — dist is bind-mounted).
+services:
+  solarsim:
+    image: nginx:1.27-alpine
+    container_name: solarsim
+    restart: unless-stopped
+    ports:
+      - "8087:80"
+    volumes:
+      - ./dist:/usr/share/nginx/html:ro
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro

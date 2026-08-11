@@ -1,0 +1,50 @@
+:root {
+  --bg: #05070a;
+  --amber: #ff9e2c;
+  --cyan: #4fd8e8;
+  --grey: #6b7280;
+  --rule: #1e2933;
+}
+* { box-sizing: border-box; }
+html, body, #app { margin: 0; height: 100%; overflow: hidden; background: var(--bg); }
+canvas { display: block; }
+
+.hud {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  background: rgba(5, 7, 10, 0.65);
+  backdrop-filter: blur(8px) saturate(0.8);
+  border: 1px solid rgba(255, 158, 44, 0.25);
+  color: var(--amber);
+  font: 13px/1.4 ui-monospace, 'JetBrains Mono', monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  min-width: 240px;
+}
+.hud label { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.hud input[type='datetime-local'] {
+  background: transparent;
+  color: var(--cyan);
+  border: 1px solid var(--rule);
+  font: inherit;
+  padding: 2px 4px;
+}
+.hud input[type='range'] { flex: 1; accent-color: var(--amber); }
+.hud .row { display: flex; align-items: center; justify-content: space-between; }
+.hud .badge { color: var(--cyan); border: 1px solid var(--rule); padding: 1px 6px; }
+.hud button {
+  background: transparent;
+  color: var(--amber);
+  border: 1px solid var(--amber);
+  font: inherit;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+.hud button:hover { background: rgba(255, 158, 44, 0.15); }

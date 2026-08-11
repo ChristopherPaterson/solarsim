@@ -1,0 +1,18 @@
+# Cloudflare Tunnel for solarsim.commx.me
+#
+# Tomorrow (Chris): create a remotely-managed tunnel in the Cloudflare Zero Trust
+# dashboard, add a public hostname:
+#     solarsim.commx.me  ->  http://localhost:8087
+# copy the tunnel token, then run from the repo root:
+#     CF_TUNNEL_TOKEN=<token> docker compose -f deploy/cloudflared-compose.yml up -d
+#
+# network_mode: host lets cloudflared reach the solarsim container on localhost:8087.
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: solarsim-tunnel
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${CF_TUNNEL_TOKEN:?set CF_TUNNEL_TOKEN}
+    network_mode: host
+    restart: unless-stopped
