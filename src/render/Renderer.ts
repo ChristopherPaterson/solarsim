@@ -20,6 +20,9 @@
 import * as THREE from 'three/webgpu';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { Body } from '../core/types';
+import { sampleOrbitPathRV } from '../core/orbital/elements';
+
+const ORBIT_SEGMENTS = 256;
 
 export interface RenderBody {
   def: Body;
@@ -34,6 +37,10 @@ export class Renderer {
   readonly bodies: RenderBody[] = [];
   private sunLight: THREE.PointLight;
   private unit = new THREE.SphereGeometry(1, 48, 24);
+  private sunIdx = 0;
+  private orbits: { idx: number; line: THREE.Line; scratch: Float64Array }[] = [];
+  private muSun = 1.32712440018e20;
+  showOrbits = true;
   isWebGPU = false;
 
   constructor(container: HTMLElement) {
@@ -73,8 +80,9 @@ export class Renderer {
   }
 
   setBodies(defs: Body[]): void {
-    for (const def of defs) {
+    defs.forEach((def, i) => {
       const isStar = def.id === 'Sun';
+      if (isStar) this.sunIdx = i;
       const mat = isStar
         ? new THREE.MeshBasicMaterial({ color: def.appearance.colour })
         : new THREE.MeshStandardMaterial({ color: def.appearance.colour, roughness: 1, metalness: 0 });
@@ -82,6 +90,41 @@ export class Renderer {
       mesh.frustumCulled = true;
       this.scene.add(mesh);
       this.bodies.push({ def, mesh });
+    });
+    this.muSun = defs[this.sunIdx].gm;
+    // Orbit paths for heliocentric bodies (planets: no parent, not the Sun).
+    defs.forEach((def, i) => {
+      if (i === this.sunIdx || def.parent) return;
+      const geom = new THREE.BufferGeometry();
+      // N+1 points: the loop is closed by repeating the first vertex (WebGPU-
+      // Renderer has no LineLoop).
+      geom.setAttribute('position', new THREE.BufferAttribute(new Float32Array((ORBIT_SEGMENTS + 1) * 3), 3));
+      const mat = new THREE.LineBasicMaterial({ color: def.appearance.colour, transparent: true, opacity: 0.3 });
+      const line = new THREE.Line(geom, mat);
+      line.frustumCulled = false; // spans the whole orbit; culling by centre is wrong
+      this.scene.add(line);
+      this.orbits.push({ idx: i, line, scratch: new Float64Array(ORBIT_SEGMENTS * 3) });
+    });
+  }
+
+  private updateOrbits(state: Float64Array): void {
+    const sb = this.sunIdx * 6;
+    const sun = this.bodies[this.sunIdx].mesh.position;
+    const r = new Float64Array(3), v = new Float64Array(3);
+    for (const o of this.orbits) {
+      o.line.visible = this.showOrbits;
+      if (!this.showOrbits) continue;
+      const b = o.idx * 6;
+      for (let k = 0; k < 3; k++) { r[k] = state[b + k] - state[sb + k]; v[k] = state[b + 3 + k] - state[sb + 3 + k]; }
+      if (!sampleOrbitPathRV(r, v, this.muSun, ORBIT_SEGMENTS, o.scratch)) { o.line.visible = false; continue; }
+      const pos = o.line.geometry.getAttribute('position') as THREE.BufferAttribute;
+      const arr = pos.array as Float32Array;
+      for (let k = 0; k < o.scratch.length; k++) arr[k] = o.scratch[k];
+      arr[o.scratch.length] = o.scratch[0]; // close the loop
+      arr[o.scratch.length + 1] = o.scratch[1];
+      arr[o.scratch.length + 2] = o.scratch[2];
+      pos.needsUpdate = true;
+      o.line.position.copy(sun); // heliocentric points + Sun scene position
     }
   }
 
@@ -100,6 +143,7 @@ export class Renderer {
       b.mesh.scale.setScalar(r);
       if (b.def.id === 'Sun') this.sunLight.position.set(px, py, pz);
     }
+    this.updateOrbits(state);
     this.controls.update();
   }
 
