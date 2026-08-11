@@ -32,13 +32,14 @@ const RING_SEGMENTS = 256;
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 const texLoader = new THREE.TextureLoader();
 
-/** Equirectangular albedo map for a body, sRGB. Async fill; safe to assign now. */
-function bodyTexture(id: string): THREE.Texture {
-  const t = texLoader.load(`textures/${id.toLowerCase()}.jpg`);
+/** Load an equirectangular texture from public/textures, sRGB. Async fill. */
+function loadTex(file: string): THREE.Texture {
+  const t = texLoader.load(`textures/${file}`);
   t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = 8;
   return t;
 }
+const bodyTexture = (id: string): THREE.Texture => loadTex(`${id.toLowerCase()}.jpg`);
 
 /** Mesh +Y aligned to a body's spin pole (IAU RA/Dec in deg, ICRF equatorial). */
 function poleQuat(poleRA: number, poleDec: number): THREE.Quaternion {
@@ -182,6 +183,23 @@ export class Renderer {
       const pole = poleQuat(def.rotation.poleRA, def.rotation.poleDec); // axial tilt
       mesh.quaternion.copy(pole);
       this.scene.add(mesh);
+
+      if (def.id === 'Earth') {
+        // Night lights: emissive map so cities glow on the dark side (and bloom).
+        // Adds slightly on the day side too, but the lit albedo swamps it there.
+        const em = mat as THREE.MeshStandardMaterial;
+        em.emissiveMap = loadTex('earth_night.jpg');
+        em.emissive = new THREE.Color(0xffffff);
+        em.emissiveIntensity = 1.4;
+        // Clouds: a lit translucent shell just above the surface, alpha from the
+        // cloud map's luminance. Child of Earth, so it spins with the surface.
+        const clouds = new THREE.Mesh(this.unit, new THREE.MeshStandardMaterial({
+          alphaMap: loadTex('earth_clouds.jpg'), transparent: true, color: 0xffffff,
+          roughness: 1, metalness: 0, depthWrite: false,
+        }));
+        clouds.scale.setScalar(1.012);
+        mesh.add(clouds);
+      }
 
       if (def.appearance.ringInner && def.appearance.ringOuter) {
         // Radii in planet-radii so the ring inherits the mesh's display scale.
