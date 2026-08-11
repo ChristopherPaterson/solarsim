@@ -2,7 +2,7 @@
 // exposes a coarse API: read the latest state, change rate, jump time. It never
 // advances physics itself.
 
-import { createSharedState, readLatest, type SharedState } from './protocol';
+import { createSharedState, readLatest, CTRL_TICK_US, type SharedState } from './protocol';
 
 export class SimClient {
   private worker: Worker;
@@ -31,6 +31,11 @@ export class SimClient {
   /** Copy the latest published state into `out` (nBodies*6 floats). Returns TDB. */
   readLatest(out: Float64Array): number {
     return readLatest(this.ctrl, this.dataF64, this.nBodies, out);
+  }
+
+  /** Last worker sim-tick evaluate() duration, milliseconds. */
+  tickMs(): number {
+    return Atomics.load(this.ctrl, CTRL_TICK_US) / 1000;
   }
 
   setRate(rate: number): void {

@@ -11,7 +11,8 @@ export const FLOATS_PER_BODY = 6; // x,y,z,vx,vy,vz (SI, ecliptic-J2000, barycen
 // Control Int32Array indices.
 export const CTRL_LATEST = 0; // slot index the consumer should read
 export const CTRL_SEQ = 1; // publish counter (monotonic)
-export const CTRL_LEN = 2;
+export const CTRL_TICK_US = 2; // last sim-tick evaluate() duration, microseconds
+export const CTRL_LEN = 3;
 
 /** Float64 per slot: 1 time word (TDB) + one 6-vector per body. */
 export const slotFloats = (nBodies: number): number => 1 + nBodies * FLOATS_PER_BODY;

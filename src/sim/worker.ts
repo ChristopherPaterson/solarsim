@@ -7,7 +7,7 @@ import * as Astro from 'astronomy-engine';
 import { AU_M, DAY_S } from '../core/units';
 import { eqjToEcl } from '../core/frames';
 import { tdbToDate } from '../core/time';
-import { publish, FLOATS_PER_BODY, type SimCommand } from './protocol';
+import { publish, FLOATS_PER_BODY, CTRL_TICK_US, type SimCommand } from './protocol';
 
 const TICK_MS = 16; // ~60 Hz sim
 const AU_PER_DAY_TO_M_S = AU_M / DAY_S;
@@ -44,7 +44,9 @@ function tick(): void {
   const dtReal = (now - lastReal) / 1000;
   lastReal = now;
   if (rate !== 0) simTdb += dtReal * rate;
+  const t0 = performance.now();
   evaluate();
+  if (ctrl) Atomics.store(ctrl, CTRL_TICK_US, Math.round((performance.now() - t0) * 1000));
 }
 
 self.onmessage = (e: MessageEvent<SimCommand>) => {

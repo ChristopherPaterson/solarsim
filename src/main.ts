@@ -125,7 +125,7 @@ renderer.renderer.setAnimationLoop(() => {
     frames = 0; lastFpsT = now;
     if (debugChk.checked) {
       const info = renderer.renderer.info.render;
-      readout.textContent = `calls ${info.drawCalls}  tris ${info.triangles}\ndist ${(renderer.focusDistance() / 1.495978707e11).toFixed(3)} AU`;
+      readout.textContent = `calls ${info.drawCalls}  tris ${info.triangles}\ntick ${sim.tickMs().toFixed(2)} ms  dist ${(renderer.focusDistance() / 1.495978707e11).toFixed(3)} AU`;
     } else readout.textContent = '';
   }
   if (now - lastDateSync > 200) { syncDatePicker(tdbToDate(curTdb as never)); lastDateSync = now; }
