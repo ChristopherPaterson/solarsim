@@ -44,6 +44,7 @@ hud.innerHTML = `
   <div class="row"><span id="ratelabel">PAUSED</span><button id="now">NOW</button></div>
   <label>SCALE <input type="range" id="scale" min="0" max="4" step="0.01"></label>
   <label class="row"><span>TRUE SCALE</span><input type="checkbox" id="truescale"></label>
+  <label class="row"><span>FLY (WASD+drag)</span><input type="checkbox" id="fly"></label>
   <label class="row"><span>DEBUG</span><input type="checkbox" id="debug"></label>
   <div class="mono" id="readout"></div>
 `;
@@ -96,6 +97,15 @@ trueScale.addEventListener('change', () => {
 });
 focusSel.addEventListener('change', () => { focusIdx = parseInt(focusSel.value); persist(); });
 
+const flyChk = $<HTMLInputElement>('#fly');
+flyChk.addEventListener('change', () => renderer.setFlyMode(flyChk.checked));
+// 'F' toggles free-flight too (ignored while typing in the date field).
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'f' && document.activeElement?.tagName !== 'INPUT') {
+    flyChk.checked = !flyChk.checked; renderer.setFlyMode(flyChk.checked);
+  }
+});
+
 function persist(t = curTdb) {
   writeState({ t, focus: bodyIds[focusIdx], rate, scale: trueScale.checked ? 1 : exaggeration });
 }
@@ -108,7 +118,7 @@ let lastDateSync = 0;
 renderer.renderer.setAnimationLoop(() => {
   curTdb = sim.readLatest(state);
   const exagg = trueScale.checked ? 1 : exaggeration;
-  renderer.update(state, focusIdx, exagg);
+  renderer.update(state, focusIdx, exagg, curTdb);
   renderer.render();
 
   // HUD readouts (throttled).

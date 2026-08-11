@@ -18,7 +18,10 @@
 // Upgrade to render-target depth partitioning when compositing lands in P5.
 
 import * as THREE from 'three/webgpu';
+import { pass } from 'three/tsl';
+import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { FlyControls } from 'three/addons/controls/FlyControls.js';
 import type { Body } from '../core/types';
 import { sampleOrbitPathRV } from '../core/orbital/elements';
 import { eqjToEcl } from '../core/frames';
@@ -26,6 +29,16 @@ import { StarField } from './StarField';
 
 const ORBIT_SEGMENTS = 256;
 const RING_SEGMENTS = 256;
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
+const texLoader = new THREE.TextureLoader();
+
+/** Equirectangular albedo map for a body, sRGB. Async fill; safe to assign now. */
+function bodyTexture(id: string): THREE.Texture {
+  const t = texLoader.load(`textures/${id.toLowerCase()}.jpg`);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  return t;
+}
 
 /** Mesh +Y aligned to a body's spin pole (IAU RA/Dec in deg, ICRF equatorial). */
 function poleQuat(poleRA: number, poleDec: number): THREE.Quaternion {
@@ -84,6 +97,7 @@ function ringTexture(): THREE.CanvasTexture {
 export interface RenderBody {
   def: Body;
   mesh: THREE.Mesh;
+  pole: THREE.Quaternion; // tilt: local +Y -> ecliptic spin pole
 }
 
 export class Renderer {
@@ -93,9 +107,13 @@ export class Renderer {
   readonly controls: OrbitControls;
   readonly bodies: RenderBody[] = [];
   private sunLight: THREE.PointLight;
-  private unit = new THREE.SphereGeometry(1, 48, 24);
+  private unit = new THREE.SphereGeometry(1, 64, 32);
   private sunIdx = 0;
   private orbits: { idx: number; centerIdx: number; mu: number; line: THREE.Line; scratch: Float64Array }[] = [];
+  private fly: FlyControls | null = null;
+  private post: THREE.PostProcessing | null = null;
+  private spin = new THREE.Quaternion(); // scratch, reused per body per frame
+  private lastUpdate = performance.now();
   showOrbits = true;
   starField: StarField | null = null;
   isWebGPU = false;
@@ -134,6 +152,12 @@ export class Renderer {
   async init(): Promise<void> {
     await this.renderer.init();
     this.isWebGPU = (this.renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend === true;
+    // Bloom: scene pass + a thresholded bloom so the Sun (and bright stars) glow.
+    // Node-based, so it runs on both the WebGPU and WebGL2 backends.
+    const scenePass = pass(this.scene, this.camera);
+    const bloomPass = bloom(scenePass, 0.7, 0.5, 0.85); // strength, radius, threshold
+    this.post = new THREE.PostProcessing(this.renderer);
+    this.post.outputNode = scenePass.add(bloomPass);
   }
 
   async loadStars(url: string, year: number): Promise<void> {
@@ -147,14 +171,16 @@ export class Renderer {
     defs.forEach((def, i) => {
       const isStar = def.id === 'Sun';
       if (isStar) this.sunIdx = i;
+      const map = bodyTexture(def.id);
+      // Star: unlit (self-luminous, bright enough to bloom). Planet/moon: lit by
+      // the Sun's point light, so a real terminator falls across the texture.
       const mat = isStar
-        ? new THREE.MeshBasicMaterial({ color: def.appearance.colour })
-        : new THREE.MeshStandardMaterial({ color: def.appearance.colour, roughness: 1, metalness: 0 });
+        ? new THREE.MeshBasicMaterial({ map })
+        : new THREE.MeshStandardMaterial({ map, roughness: 1, metalness: 0 });
       const mesh = new THREE.Mesh(this.unit, mat);
       mesh.frustumCulled = true;
-      // Axial tilt: spin pole from IAU pole RA/Dec. Invisible on a plain sphere
-      // today, but it orients the rings correctly and is ready for textures (P5).
-      mesh.quaternion.copy(poleQuat(def.rotation.poleRA, def.rotation.poleDec));
+      const pole = poleQuat(def.rotation.poleRA, def.rotation.poleDec); // axial tilt
+      mesh.quaternion.copy(pole);
       this.scene.add(mesh);
 
       if (def.appearance.ringInner && def.appearance.ringOuter) {
@@ -166,7 +192,7 @@ export class Renderer {
         ring.frustumCulled = false;
         mesh.add(ring); // parent tilt (poleQuat) lays the ring in the equatorial plane
       }
-      this.bodies.push({ def, mesh });
+      this.bodies.push({ def, mesh, pole });
     });
     const idOf = (id: string) => defs.findIndex((d) => d.id === id);
     // Orbit paths: planets about the Sun, satellites about their parent body.
@@ -211,7 +237,7 @@ export class Renderer {
    * (x,y,z,vx,vy,vz). `focusIdx` selects the floating-origin anchor.
    * `exaggeration` scales displayed radius (1 = true scale).
    */
-  update(state: Float64Array, focusIdx: number, exaggeration: number): void {
+  update(state: Float64Array, focusIdx: number, exaggeration: number, tdb: number): void {
     const fx = state[focusIdx * 6], fy = state[focusIdx * 6 + 1], fz = state[focusIdx * 6 + 2];
     for (let i = 0; i < this.bodies.length; i++) {
       const b = this.bodies[i];
@@ -219,11 +245,42 @@ export class Renderer {
       b.mesh.position.set(px, py, pz);
       const r = b.def.radius * (b.def.id === 'Sun' ? Math.min(exaggeration, 30) : exaggeration);
       b.mesh.scale.setScalar(r);
+      // Live axial rotation: W = W0 + 360*(t/period) deg about the pole. Negative
+      // period is retrograde (Venus, Uranus). Visible once time is running fast.
+      const p = b.def.rotation.period;
+      if (p !== 0) {
+        const w = ((b.def.rotation.primeMeridian + 360 * (tdb / p)) % 360) * (Math.PI / 180);
+        this.spin.setFromAxisAngle(Y_AXIS, w);
+        b.mesh.quaternion.copy(b.pole).multiply(this.spin);
+      }
       if (b.def.id === 'Sun') this.sunLight.position.set(px, py, pz);
     }
     this.updateOrbits(state);
     if (this.starField) this.starField.update(this.camera);
-    this.controls.update();
+
+    const now = performance.now();
+    const dt = Math.min(0.1, (now - this.lastUpdate) / 1000);
+    this.lastUpdate = now;
+    if (this.fly) {
+      this.fly.movementSpeed = Math.max(1e6, this.camera.position.length() * 0.6); // scale with distance
+      this.fly.update(dt);
+    } else {
+      this.controls.update();
+    }
+  }
+
+  /** Toggle free-flight (WASD/RF + drag-to-look) vs orbit/focus controls. */
+  setFlyMode(on: boolean): void {
+    if (on && !this.fly) {
+      this.controls.enabled = false;
+      this.fly = new FlyControls(this.camera, this.renderer.domElement);
+      this.fly.rollSpeed = 0.6;
+      this.fly.dragToLook = true; // look only while dragging; keys always move
+    } else if (!on && this.fly) {
+      this.fly.dispose();
+      this.fly = null;
+      this.controls.enabled = true;
+    }
   }
 
   render(): void {
@@ -240,7 +297,8 @@ export class Renderer {
     this.camera.far = Math.max(camDist * 5, dmax * 1.5, this.camera.near * 10);
     this.camera.updateProjectionMatrix();
     this.renderer.autoClear = true;
-    this.renderer.render(this.scene, this.camera);
+    if (this.post) this.post.render();
+    else this.renderer.render(this.scene, this.camera);
   }
 
   /** Distance from camera to the focus (origin), in metres. For the HUD. */

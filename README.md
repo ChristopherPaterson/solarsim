@@ -37,6 +37,12 @@ for the P1+ worker core.
 [`deploy/cloudflared-compose.yml`](deploy/cloudflared-compose.yml) for the
 one-command bring-up once the tunnel token exists.
 
+## Credits
+
+Planet/Sun surface maps in `public/textures/` are the 2K equirectangular
+textures from [Solar System Scope](https://www.solarsystemscope.com/textures/),
+licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
 ## Status
 
 Live build status is written to the share at `solarsim/status.html`.
