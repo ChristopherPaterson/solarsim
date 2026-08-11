@@ -21,9 +21,65 @@ import * as THREE from 'three/webgpu';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { Body } from '../core/types';
 import { sampleOrbitPathRV } from '../core/orbital/elements';
+import { eqjToEcl } from '../core/frames';
 import { StarField } from './StarField';
 
 const ORBIT_SEGMENTS = 256;
+const RING_SEGMENTS = 256;
+
+/** Mesh +Y aligned to a body's spin pole (IAU RA/Dec in deg, ICRF equatorial). */
+function poleQuat(poleRA: number, poleDec: number): THREE.Quaternion {
+  const ra = (poleRA * Math.PI) / 180, dec = (poleDec * Math.PI) / 180;
+  const eq = new Float64Array([Math.cos(dec) * Math.cos(ra), Math.cos(dec) * Math.sin(ra), Math.sin(dec)]);
+  eqjToEcl(eq, eq); // ephemeris frame is ecliptic-J2000, so the pole must be too
+  const up = new THREE.Vector3(eq[0], eq[1], eq[2]).normalize();
+  return new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), up);
+}
+
+/** Ring lying in the XZ plane (normal +Y = local pole), radii in planet-radii,
+ *  v: 0 inner -> 1 outer so a radial alpha texture maps cleanly. */
+function buildRing(innerR: number, outerR: number): THREE.BufferGeometry {
+  const pos: number[] = [], uv: number[] = [], idx: number[] = [];
+  for (let i = 0; i <= RING_SEGMENTS; i++) {
+    const a = (i / RING_SEGMENTS) * Math.PI * 2, c = Math.cos(a), s = Math.sin(a);
+    pos.push(innerR * c, 0, innerR * s, outerR * c, 0, outerR * s);
+    uv.push(i / RING_SEGMENTS, 0, i / RING_SEGMENTS, 1);
+    if (i < RING_SEGMENTS) { const b = i * 2; idx.push(b, b + 1, b + 3, b, b + 3, b + 2); }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  return g;
+}
+
+/** 1-D radial alpha strip approximating Saturn's C/B/Cassini/A structure. */
+function ringTexture(): THREE.CanvasTexture {
+  // Opacity by fractional radius v (0 inner -> 1 outer): faint C ring, dense B
+  // ring, the dark Cassini division, then the A ring with the thin Encke gap.
+  const density = (v: number): number => {
+    if (v < 0.20) return 0.35;            // C ring
+    if (v < 0.55) return 0.95;            // B ring (brightest)
+    if (v < 0.62) return 0.10;            // Cassini division
+    if (v > 0.92 && v < 0.94) return 0.2; // Encke gap
+    if (v < 0.98) return 0.75;            // A ring
+    return 0.4;
+  };
+  const h = 256, cv = document.createElement('canvas');
+  cv.width = 1; cv.height = h;
+  const ctx = cv.getContext('2d')!;
+  for (let y = 0; y < h; y++) {
+    const v = y / h;
+    const edge = Math.min(1, v / 0.03, (1 - v) / 0.03); // soft inner/outer rims
+    const grain = 0.93 + 0.07 * Math.sin(v * 30); // faint fine structure
+    const a = density(v) * edge * grain;
+    ctx.fillStyle = `rgba(222,205,168,${a})`;
+    ctx.fillRect(0, y, 1, 1);
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.needsUpdate = true;
+  return tex;
+}
 
 export interface RenderBody {
   def: Body;
@@ -96,7 +152,20 @@ export class Renderer {
         : new THREE.MeshStandardMaterial({ color: def.appearance.colour, roughness: 1, metalness: 0 });
       const mesh = new THREE.Mesh(this.unit, mat);
       mesh.frustumCulled = true;
+      // Axial tilt: spin pole from IAU pole RA/Dec. Invisible on a plain sphere
+      // today, but it orients the rings correctly and is ready for textures (P5).
+      mesh.quaternion.copy(poleQuat(def.rotation.poleRA, def.rotation.poleDec));
       this.scene.add(mesh);
+
+      if (def.appearance.ringInner && def.appearance.ringOuter) {
+        // Radii in planet-radii so the ring inherits the mesh's display scale.
+        const ring = new THREE.Mesh(
+          buildRing(def.appearance.ringInner / def.radius, def.appearance.ringOuter / def.radius),
+          new THREE.MeshBasicMaterial({ map: ringTexture(), transparent: true, side: THREE.DoubleSide, depthWrite: false }),
+        );
+        ring.frustumCulled = false;
+        mesh.add(ring); // parent tilt (poleQuat) lays the ring in the equatorial plane
+      }
       this.bodies.push({ def, mesh });
     });
     const idOf = (id: string) => defs.findIndex((d) => d.id === id);
