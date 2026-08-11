@@ -13,14 +13,15 @@
       "notes": "Filtered to V<=6.5 (8920 stars). Fields: unit direction (equatorial J2000), Vmag, B-V, proper motion."
     },
     {
-      "id": "ephemeris-astronomy-engine",
+      "id": "ephemeris-de440",
       "kind": "ephemeris",
-      "source": "astronomy-engine (npm)",
-      "url": "https://github.com/cosinekitty/astronomy",
-      "licence": "MIT",
-      "attribution": "Don Cross — astronomy-engine (VSOP87/NOVAS)",
-      "retrieved": "2026-08-11",
-      "notes": "P1 planet/moon positions. Replaced by baked SPK in P2."
+      "file": "public/data/ephemeris.bin",
+      "source": "JPL DE440 (de440s.bsp)",
+      "url": "https://naif.jpl.nasa.gov/pub/naif/generic_kernels/spk/planets/de440s.bsp",
+      "licence": "Public domain (U.S. Government work, NASA/JPL-Caltech)",
+      "attribution": "JPL Solar System Dynamics — DE440 planetary ephemeris",
+      "retrieved": "2026-08-12",
+      "notes": "P2. Chebyshev coefficients baked by tools/bake_ephemeris.py for 1950-2099, 13 segments. Sun/Mercury/Venus/Earth/Moon/Mars as true centres (sub-km vs Horizons); Jupiter/Saturn/Uranus/Neptune as system barycentres (centre needs satellite kernels)."
     }
   ]
 }

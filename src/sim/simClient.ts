@@ -46,6 +46,9 @@ export class SimClient {
       bodyIds,
       tdb: startTdb,
       rate,
+      // Resolve against the document base so the worker (own base URL) fetches
+      // the right path whether served at root or under a subpath.
+      ephUrl: new URL('data/ephemeris.bin', location.href).href,
     });
   }
 

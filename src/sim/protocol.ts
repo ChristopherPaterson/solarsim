@@ -21,7 +21,7 @@ export const slotFloats = (nBodies: number): number => 1 + nBodies * FLOATS_PER_
 // `control`/`data` are null in the no-SAB fallback (plain-http LAN, no
 // cross-origin isolation) — the worker then ships each frame back via postMessage.
 export type SimCommand =
-  | { type: 'init'; control: SharedArrayBuffer | null; data: SharedArrayBuffer | null; nBodies: number; bodyIds: string[]; tdb: number; rate: number }
+  | { type: 'init'; control: SharedArrayBuffer | null; data: SharedArrayBuffer | null; nBodies: number; bodyIds: string[]; tdb: number; rate: number; ephUrl: string }
   | { type: 'setRate'; rate: number } // sim seconds per real second; 0 = paused
   | { type: 'jumpTo'; tdb: number };
 

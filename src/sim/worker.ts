@@ -1,47 +1,43 @@
 // Sim worker: the time authority (build plan §4.1). Advances TDB, evaluates
-// barycentric state for every body (P1: astronomy-engine BaryState), converts
-// to SI + ecliptic-J2000, and publishes into the SAB ring. The main thread
-// never advances physics.
+// barycentric state for every body from the baked DE440 ephemeris (P2), converts
+// ICRF -> ecliptic-J2000, and publishes into the SAB ring. The main thread never
+// advances physics.
 
-import * as Astro from 'astronomy-engine';
-import { AU_M, DAY_S } from '../core/units';
 import { eqjToEcl } from '../core/frames';
-import { tdbToDate } from '../core/time';
+import { De440 } from '../core/ephemeris/de440';
 import { publish, FLOATS_PER_BODY, CTRL_TICK_US, type SimCommand, type SimFrame } from './protocol';
 
 const TICK_MS = 16; // ~60 Hz sim
-const AU_PER_DAY_TO_M_S = AU_M / DAY_S;
 
 let ctrl: Int32Array | null = null;
 let data: Float64Array | null = null;
 let nBodies = 0;
-let bodies: Astro.Body[] = [];
+let bodyIds: string[] = [];
+let eph: De440 | null = null;
 let scratch = new Float64Array(0);
 
 let simTdb = 0; // TDB seconds past J2000
 let rate = 0; // sim seconds per real second
 let lastReal = performance.now();
-const tmp = new Float64Array(3);
+const tmp = new Float64Array(6);
 
 // Fill `scratch` with the barycentric state for the current simTdb. No publish.
 function computeState(): void {
-  const date = tdbToDate(simTdb as never);
+  if (!eph) return;
   for (let i = 0; i < nBodies; i++) {
-    const s = Astro.BaryState(bodies[i], date); // AU, AU/day, equatorial J2000
-    tmp[0] = s.x * AU_M; tmp[1] = s.y * AU_M; tmp[2] = s.z * AU_M;
-    eqjToEcl(tmp, tmp);
+    eph.state(bodyIds[i], simTdb, tmp); // m, m/s, ICRF/equatorial-J2000
     const b = i * FLOATS_PER_BODY;
+    eqjToEcl(tmp.subarray(0, 3), tmp.subarray(0, 3)); // position -> ecliptic
+    eqjToEcl(tmp.subarray(3, 6), tmp.subarray(3, 6)); // velocity -> ecliptic
     scratch[b] = tmp[0]; scratch[b + 1] = tmp[1]; scratch[b + 2] = tmp[2];
-    tmp[0] = s.vx * AU_PER_DAY_TO_M_S; tmp[1] = s.vy * AU_PER_DAY_TO_M_S; tmp[2] = s.vz * AU_PER_DAY_TO_M_S;
-    eqjToEcl(tmp, tmp);
-    scratch[b + 3] = tmp[0]; scratch[b + 4] = tmp[1]; scratch[b + 5] = tmp[2];
+    scratch[b + 3] = tmp[3]; scratch[b + 4] = tmp[4]; scratch[b + 5] = tmp[5];
   }
 }
 
 // Compute one frame (timing it) and publish. SAB mode writes the ring; the
 // no-isolation fallback posts a copy back to the main thread.
 function publishFrame(): void {
-  if (!bodies.length) return;
+  if (!eph) return;
   const t0 = performance.now();
   computeState();
   const tickUs = Math.round((performance.now() - t0) * 1000);
@@ -69,13 +65,21 @@ self.onmessage = (e: MessageEvent<SimCommand>) => {
       ctrl = msg.control ? new Int32Array(msg.control) : null;
       data = msg.data ? new Float64Array(msg.data) : null;
       nBodies = msg.nBodies;
-      bodies = msg.bodyIds.map((id) => (Astro.Body as Record<string, Astro.Body>)[id]);
+      bodyIds = msg.bodyIds;
       scratch = new Float64Array(nBodies * FLOATS_PER_BODY);
       simTdb = msg.tdb;
       rate = msg.rate;
-      lastReal = performance.now();
-      publishFrame(); // publish an initial frame immediately
-      setInterval(tick, TICK_MS);
+      // Load the baked DE440 ephemeris, then start ticking (the main thread just
+      // reads zeros until the first frame publishes, same as before).
+      fetch(msg.ephUrl)
+        .then((r) => r.arrayBuffer())
+        .then((buf) => {
+          eph = new De440(buf);
+          lastReal = performance.now();
+          publishFrame(); // first frame as soon as the ephemeris is ready
+          setInterval(tick, TICK_MS);
+        })
+        .catch((err) => console.error('SolarSim: ephemeris load failed', err));
       break;
     case 'setRate':
       rate = msg.rate;
