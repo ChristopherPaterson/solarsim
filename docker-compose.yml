@@ -7,7 +7,9 @@ services:
     container_name: solarsim
     restart: unless-stopped
     ports:
-      - "8087:80"
+      - "8087:80"   # http origin for the Cloudflare tunnel
+      - "8443:443"  # self-signed https for secure-context LAN preview
     volumes:
       - ./dist:/usr/share/nginx/html:ro
       - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/certs:/etc/nginx/certs:ro

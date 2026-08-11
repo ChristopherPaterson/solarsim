@@ -48,3 +48,32 @@ canvas { display: block; }
   cursor: pointer;
 }
 .hud button:hover { background: rgba(255, 158, 44, 0.15); }
+.hud select {
+  background: transparent;
+  color: var(--cyan);
+  border: 1px solid var(--rule);
+  font: inherit;
+  text-transform: uppercase;
+  padding: 2px 4px;
+}
+.hud select option { background: var(--bg); }
+.hud input[type='checkbox'] { accent-color: var(--amber); }
+.hud .mono {
+  color: var(--grey);
+  font-variant-numeric: tabular-nums;
+  white-space: pre;
+  font-size: 11px;
+  min-height: 1em;
+}
+.notice {
+  max-width: 620px;
+  margin: 12vh auto;
+  padding: 28px 32px;
+  color: var(--amber);
+  font: 15px/1.6 ui-monospace, 'JetBrains Mono', monospace;
+  border: 1px solid rgba(255, 158, 44, 0.3);
+  background: rgba(5, 7, 10, 0.6);
+}
+.notice h1 { text-transform: uppercase; letter-spacing: 0.14em; font-size: 22px; }
+.notice code { color: var(--cyan); }
+.notice a { color: var(--cyan); }

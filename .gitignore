@@ -2,3 +2,5 @@ node_modules
 dist
 *.local
 .DS_Store
+deploy/certs/
+smoke.mjs

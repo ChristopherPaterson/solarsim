@@ -1,134 +1,133 @@
-import * as THREE from 'three/webgpu';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { HelioVector } from 'astronomy-engine';
-import { SUN, PLANETS, type P0Body } from './planets';
+import { Renderer } from './render/Renderer';
+import { SimClient } from './sim/simClient';
+import { SOLAR_SYSTEM } from './data/bodies';
+import { dateToTdb, tdbToDate } from './core/time';
+import { readState, writeState } from './ui/urlState';
 import './style.css';
-
-// --- P0 scene scale ---------------------------------------------------------
-// Positions come from astronomy-engine HelioVector in AU (equatorial J2000).
-// P0 uses 1 scene unit = 1 AU and exaggerates radii so bodies are visible.
-// This is throwaway: real-scale + floating origin is P1.
-const AU = 1;
-const sceneRadius = (radiusKm: number) => 0.06 * Math.cbrt(radiusKm / 6371);
 
 const app = document.getElementById('app')!;
 
-const renderer = new THREE.WebGPURenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.setSize(window.innerWidth, window.innerHeight);
-app.appendChild(renderer.domElement);
-
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x05070a);
-
-const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.001, 10000);
-camera.position.set(0, 8, 16);
-
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
-
-// One mesh per body; sphere unit geometry scaled per body.
-const unitSphere = new THREE.SphereGeometry(1, 32, 16);
-interface RenderedBody {
-  def: P0Body;
-  mesh: THREE.Mesh;
-}
-const bodies: RenderedBody[] = [];
-
-function makeBody(def: P0Body, emissive: boolean): RenderedBody {
-  const mat = emissive
-    ? new THREE.MeshBasicMaterial({ color: def.colour })
-    : new THREE.MeshStandardMaterial({ color: def.colour, roughness: 1, metalness: 0 });
-  const mesh = new THREE.Mesh(unitSphere, mat);
-  mesh.scale.setScalar(sceneRadius(def.radiusKm) * (emissive ? 3 : 1));
-  scene.add(mesh);
-  return { def, mesh };
+// SharedArrayBuffer (the sim core) needs a cross-origin-isolated secure context.
+// That holds over https (the tunnel) and on localhost, but NOT over plain http
+// to a LAN IP. Fail loudly rather than throwing an opaque SAB ReferenceError.
+if (!globalThis.crossOriginIsolated || typeof SharedArrayBuffer === 'undefined') {
+  app.innerHTML = `<div class="notice">
+    <h1>SolarSim</h1>
+    <p>This build needs a cross-origin-isolated secure context for the simulation core (SharedArrayBuffer).</p>
+    <p>Open it over <b>HTTPS</b> — on this LAN use <code>https://10.92.2.54:8443/</code>
+    (accept the self-signed cert), or the public <code>solarsim.commx.me</code> once the tunnel is up.</p>
+  </div>`;
+  throw new Error('SolarSim: not cross-origin isolated; needs HTTPS/localhost.');
 }
 
-const sun = makeBody(SUN, true);
-bodies.push(sun);
-for (const p of PLANETS) bodies.push(makeBody(p, false));
+const bodyIds = SOLAR_SYSTEM.map((b) => b.id);
+const nBodies = bodyIds.length;
 
-// Sunlight from the origin.
-const sunLight = new THREE.PointLight(0xffffff, 4, 0, 0);
-scene.add(sunLight);
-scene.add(new THREE.AmbientLight(0x222233, 1));
+// --- initial state from URL (or now) ---------------------------------------
+const url = readState();
+let focusIdx = Math.max(0, bodyIds.indexOf(url.focus ?? 'Earth'));
+let exaggeration = url.scale ?? 1500;
+const startTdb = url.t ?? dateToTdb(new Date());
+let rate = url.rate ?? 0;
 
-// Place every body at its heliocentric position for a given date.
-function updatePositions(date: Date) {
-  for (const b of bodies) {
-    if (b.def === SUN) continue;
-    const v = HelioVector(b.def.body, date);
-    b.mesh.position.set(v.x * AU, v.z * AU, -v.y * AU); // y-up scene: map ecliptic z->y
-  }
-}
+const sim = new SimClient(bodyIds, startTdb, rate);
+const renderer = new Renderer(app);
+await renderer.init();
+renderer.setBodies(SOLAR_SYSTEM);
 
-// --- time authority (P0: main-thread, replaced by worker in P1) -------------
-let simDate = new Date();
-let rate = 0; // seconds of sim time per second of real time
-let lastReal = performance.now();
-
-function tick(nowReal: number) {
-  const dtReal = (nowReal - lastReal) / 1000;
-  lastReal = nowReal;
-  if (rate !== 0) {
-    simDate = new Date(simDate.getTime() + dtReal * rate * 1000);
-    syncDatePicker();
-  }
-  updatePositions(simDate);
-  controls.update();
-  renderer.render(scene, camera);
-}
+const state = new Float64Array(nBodies * 6);
+let curTdb = startTdb;
 
 // --- HUD --------------------------------------------------------------------
 const hud = document.createElement('div');
 hud.className = 'hud';
 hud.innerHTML = `
-  <div class="row"><span class="badge" id="backend">…</span></div>
+  <div class="row"><span class="badge" id="backend">…</span><span class="badge" id="fps">-- FPS</span></div>
+  <label>FOCUS <select id="focus">${SOLAR_SYSTEM.map((b, i) => `<option value="${i}">${b.id.toUpperCase()}</option>`).join('')}</select></label>
   <label>DATE <input type="datetime-local" id="date" step="1"></label>
-  <label>RATE <input type="range" id="rate" min="0" max="8" step="0.1" value="0"></label>
+  <label>RATE <input type="range" id="rate" min="0" max="8" step="0.05"></label>
   <div class="row"><span id="ratelabel">PAUSED</span><button id="now">NOW</button></div>
+  <label>SCALE <input type="range" id="scale" min="0" max="4" step="0.01"></label>
+  <label class="row"><span>TRUE SCALE</span><input type="checkbox" id="truescale"></label>
+  <label class="row"><span>DEBUG</span><input type="checkbox" id="debug"></label>
+  <div class="mono" id="readout"></div>
 `;
 app.appendChild(hud);
 
-const dateInput = hud.querySelector<HTMLInputElement>('#date')!;
-const rateInput = hud.querySelector<HTMLInputElement>('#rate')!;
-const rateLabel = hud.querySelector<HTMLSpanElement>('#ratelabel')!;
+const $ = <T extends HTMLElement>(sel: string) => hud.querySelector<T>(sel)!;
+const dateInput = $<HTMLInputElement>('#date');
+const rateInput = $<HTMLInputElement>('#rate');
+const rateLabel = $<HTMLSpanElement>('#ratelabel');
+const scaleInput = $<HTMLInputElement>('#scale');
+const trueScale = $<HTMLInputElement>('#truescale');
+const focusSel = $<HTMLSelectElement>('#focus');
+const readout = $<HTMLDivElement>('#readout');
+const debugChk = $<HTMLInputElement>('#debug');
 
-function syncDatePicker() {
-  // datetime-local wants local time without timezone/millis.
-  const d = simDate;
-  const pad = (n: number) => String(n).padStart(2, '0');
+$<HTMLSpanElement>('#backend').textContent = renderer.isWebGPU ? 'WEBGPU' : 'WEBGL2';
+focusSel.value = String(focusIdx);
+scaleInput.value = String(Math.log10(exaggeration));
+rateInput.value = rate === 0 ? '0' : String(Math.log10(rate));
+setRateLabel(rate);
+
+function setRateLabel(r: number) {
+  rateLabel.textContent = r === 0 ? 'PAUSED' : `×${r.toExponential(0)}`;
+}
+function pad(n: number) { return String(n).padStart(2, '0'); }
+function syncDatePicker(d: Date) {
   dateInput.value = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 dateInput.addEventListener('change', () => {
   const parsed = new Date(dateInput.value);
-  if (!isNaN(parsed.getTime())) simDate = parsed;
+  if (!isNaN(parsed.getTime())) { const t = dateToTdb(parsed); sim.jumpTo(t); persist(t); }
 });
-
 rateInput.addEventListener('input', () => {
-  // slider 0 -> paused, otherwise 10^(v) sim-seconds per real-second (max ~1e8).
   const v = parseFloat(rateInput.value);
   rate = v === 0 ? 0 : Math.pow(10, v);
-  rateLabel.textContent = v === 0 ? 'PAUSED' : `×${rate.toExponential(0)}`;
+  sim.setRate(rate); setRateLabel(rate); persist();
+});
+$<HTMLButtonElement>('#now').addEventListener('click', () => {
+  const t = dateToTdb(new Date()); sim.jumpTo(t); syncDatePicker(new Date()); persist(t);
+});
+scaleInput.addEventListener('input', () => {
+  exaggeration = Math.pow(10, parseFloat(scaleInput.value));
+  trueScale.checked = false; persist();
+});
+trueScale.addEventListener('change', () => {
+  if (trueScale.checked) exaggeration = 1;
+  else exaggeration = Math.pow(10, parseFloat(scaleInput.value));
+  persist();
+});
+focusSel.addEventListener('change', () => { focusIdx = parseInt(focusSel.value); persist(); });
+
+function persist(t = curTdb) {
+  writeState({ t, focus: bodyIds[focusIdx], rate, scale: trueScale.checked ? 1 : exaggeration });
+}
+
+// --- loop -------------------------------------------------------------------
+let frames = 0;
+let lastFpsT = performance.now();
+let lastDateSync = 0;
+
+renderer.renderer.setAnimationLoop(() => {
+  curTdb = sim.readLatest(state);
+  const exagg = trueScale.checked ? 1 : exaggeration;
+  renderer.update(state, focusIdx, exagg);
+  renderer.render();
+
+  // HUD readouts (throttled).
+  const now = performance.now();
+  frames++;
+  if (now - lastFpsT > 500) {
+    $<HTMLSpanElement>('#fps').textContent = `${Math.round((frames * 1000) / (now - lastFpsT))} FPS`;
+    frames = 0; lastFpsT = now;
+    if (debugChk.checked) {
+      const info = renderer.renderer.info.render;
+      readout.textContent = `calls ${info.drawCalls}  tris ${info.triangles}\ndist ${(renderer.focusDistance() / 1.495978707e11).toFixed(3)} AU`;
+    } else readout.textContent = '';
+  }
+  if (now - lastDateSync > 200) { syncDatePicker(tdbToDate(curTdb as never)); lastDateSync = now; }
 });
 
-hud.querySelector<HTMLButtonElement>('#now')!.addEventListener('click', () => {
-  simDate = new Date();
-  syncDatePicker();
-});
-
-syncDatePicker();
-
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-});
-
-// WebGPURenderer requires init() before first render; falls back to WebGL2.
-await renderer.init();
-const isWebGPU = (renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend === true;
-hud.querySelector<HTMLSpanElement>('#backend')!.textContent = isWebGPU ? 'WEBGPU' : 'WEBGL2';
-renderer.setAnimationLoop(tick);
+(globalThis as { __r?: Renderer }).__r = renderer; // dev inspection hook
