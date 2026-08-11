@@ -34,6 +34,7 @@ const sim = new SimClient(bodyIds, startTdb, rate);
 const renderer = new Renderer(app);
 await renderer.init();
 renderer.setBodies(SOLAR_SYSTEM);
+renderer.loadStars('data/stars.bin', tdbToDate(startTdb as never).getFullYear()).catch((e) => console.warn('stars:', e));
 
 const state = new Float64Array(nBodies * 6);
 let curTdb = startTdb;
@@ -80,7 +81,7 @@ function syncDatePicker(d: Date) {
 
 dateInput.addEventListener('change', () => {
   const parsed = new Date(dateInput.value);
-  if (!isNaN(parsed.getTime())) { const t = dateToTdb(parsed); sim.jumpTo(t); persist(t); }
+  if (!isNaN(parsed.getTime())) { const t = dateToTdb(parsed); sim.jumpTo(t); renderer.starField?.applyEpoch(parsed.getFullYear()); persist(t); }
 });
 rateInput.addEventListener('input', () => {
   const v = parseFloat(rateInput.value);

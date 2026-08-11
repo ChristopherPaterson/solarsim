@@ -21,6 +21,7 @@ import * as THREE from 'three/webgpu';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { Body } from '../core/types';
 import { sampleOrbitPathRV } from '../core/orbital/elements';
+import { StarField } from './StarField';
 
 const ORBIT_SEGMENTS = 256;
 
@@ -41,6 +42,7 @@ export class Renderer {
   private orbits: { idx: number; line: THREE.Line; scratch: Float64Array }[] = [];
   private muSun = 1.32712440018e20;
   showOrbits = true;
+  starField: StarField | null = null;
   isWebGPU = false;
 
   constructor(container: HTMLElement) {
@@ -77,6 +79,13 @@ export class Renderer {
   async init(): Promise<void> {
     await this.renderer.init();
     this.isWebGPU = (this.renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend === true;
+  }
+
+  async loadStars(url: string, year: number): Promise<void> {
+    const buf = await (await fetch(url)).arrayBuffer();
+    this.starField = new StarField(buf);
+    this.starField.applyEpoch(year);
+    this.scene.add(this.starField.points);
   }
 
   setBodies(defs: Body[]): void {
@@ -144,6 +153,7 @@ export class Renderer {
       if (b.def.id === 'Sun') this.sunLight.position.set(px, py, pz);
     }
     this.updateOrbits(state);
+    if (this.starField) this.starField.update(this.camera);
     this.controls.update();
   }
 

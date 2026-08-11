@@ -1,0 +1,26 @@
+{
+  "assets": [
+    {
+      "id": "stars-hyg",
+      "kind": "star-catalogue",
+      "file": "public/data/stars.bin",
+      "source": "HYG Database v4.1 (astronexus/HYG-Database)",
+      "url": "https://github.com/astronexus/HYG-Database",
+      "derivedFrom": "Hipparcos, Yale Bright Star Catalog, Gliese",
+      "licence": "CC BY-SA 4.0",
+      "attribution": "Astronomy Nexus — HYG Database (Hipparcos/Yale BSC/Gliese)",
+      "retrieved": "2026-08-11",
+      "notes": "Filtered to V<=6.5 (8920 stars). Fields: unit direction (equatorial J2000), Vmag, B-V, proper motion."
+    },
+    {
+      "id": "ephemeris-astronomy-engine",
+      "kind": "ephemeris",
+      "source": "astronomy-engine (npm)",
+      "url": "https://github.com/cosinekitty/astronomy",
+      "licence": "MIT",
+      "attribution": "Don Cross — astronomy-engine (VSOP87/NOVAS)",
+      "retrieved": "2026-08-11",
+      "notes": "P1 planet/moon positions. Replaced by baked SPK in P2."
+    }
+  ]
+}
