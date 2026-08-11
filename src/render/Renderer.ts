@@ -116,6 +116,7 @@ export class Renderer {
   private spin = new THREE.Quaternion(); // scratch, reused per body per frame
   private lastUpdate = performance.now();
   private earthIdx = -1;
+  private earthClouds: THREE.Mesh | null = null;
   // TSL uniform handle (Earth->Sun dir, scene frame). `any`: TSL node types are
   // too loose to thread through dot()/emissiveNode without friction.
   private sunDirNode: { value: THREE.Vector3 } | null = null;
@@ -206,6 +207,7 @@ export class Renderer {
         }));
         clouds.scale.setScalar(1.012);
         mesh.add(clouds);
+        this.earthClouds = clouds;
       }
 
       if (def.appearance.ringInner && def.appearance.ringOuter) {
@@ -286,6 +288,12 @@ export class Renderer {
         .copy(this.bodies[this.sunIdx].mesh.position)
         .sub(this.bodies[this.earthIdx].mesh.position)
         .normalize();
+    }
+    if (this.earthClouds) {
+      // Cloud drift: clouds lead the surface, one extra lap ~every 8 days. Local
+      // rotation about the pole, so it composes with Earth's own spin (parent).
+      this.spin.setFromAxisAngle(Y_AXIS, (tdb / 691200) * Math.PI * 2);
+      this.earthClouds.quaternion.copy(this.spin);
     }
     this.updateOrbits(state);
     if (this.starField) this.starField.update(this.camera);
