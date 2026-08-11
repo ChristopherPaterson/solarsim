@@ -29,6 +29,8 @@ import { StarField } from './StarField';
 
 const ORBIT_SEGMENTS = 256;
 const RING_SEGMENTS = 256;
+const MAX_PARTICLES = 64;
+const TRAIL_LEN = 600; // breadcrumb points per test particle
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 const texLoader = new THREE.TextureLoader();
 
@@ -117,6 +119,11 @@ export class Renderer {
   private lastUpdate = performance.now();
   private earthIdx = -1;
   private earthClouds: THREE.Mesh | null = null;
+  // Test particles (P3): one Points cloud for markers + a ring-buffer trail line
+  // each. Trails hold absolute ecliptic positions, re-offset by focus per frame.
+  private particlePoints!: THREE.Points;
+  private trails: { line: THREE.Line; abs: Float64Array; head: number; len: number }[] = [];
+  private prevParticleCount = 0;
   // TSL uniform handle (Earth->Sun dir, scene frame). `any`: TSL node types are
   // too loose to thread through dot()/emissiveNode without friction.
   private sunDirNode: { value: THREE.Vector3 } | null = null;
@@ -152,7 +159,62 @@ export class Renderer {
     this.scene.add(this.sunLight);
     this.scene.add(new THREE.AmbientLight(0x222233, 1.2));
 
+    this.setupParticles();
     window.addEventListener('resize', () => this.onResize());
+  }
+
+  private setupParticles(): void {
+    // Markers: fixed-pixel-size bright points (always visible, no attenuation).
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_PARTICLES * 3), 3));
+    g.setDrawRange(0, 0);
+    this.particlePoints = new THREE.Points(g, new THREE.PointsMaterial({
+      color: 0x66ffcc, size: 7, sizeAttenuation: false, depthTest: false, transparent: true,
+    }));
+    this.particlePoints.frustumCulled = false;
+    this.scene.add(this.particlePoints);
+    for (let i = 0; i < MAX_PARTICLES; i++) {
+      const tg = new THREE.BufferGeometry();
+      tg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(TRAIL_LEN * 3), 3));
+      tg.setDrawRange(0, 0);
+      const line = new THREE.Line(tg, new THREE.LineBasicMaterial({ color: 0x66ffcc, transparent: true, opacity: 0.55 }));
+      line.frustumCulled = false; line.visible = false;
+      this.scene.add(line);
+      this.trails.push({ line, abs: new Float64Array(TRAIL_LEN * 3), head: 0, len: 0 });
+    }
+  }
+
+  /** Place test-particle markers + append to their trails. `pos` is count*3
+   *  barycentric ecliptic m; (fx,fy,fz) is the floating-origin focus offset. */
+  updateParticles(pos: Float64Array, fx: number, fy: number, fz: number): void {
+    const count = pos.length / 3;
+    // Reset trails that vanished (cleared) or were newly added.
+    for (let i = count; i < this.prevParticleCount; i++) { const t = this.trails[i]; t.head = 0; t.len = 0; t.line.visible = false; }
+    for (let i = this.prevParticleCount; i < count; i++) { const t = this.trails[i]; t.head = 0; t.len = 0; }
+    this.prevParticleCount = count;
+
+    const mk = this.particlePoints.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const mkArr = mk.array as Float32Array;
+    for (let i = 0; i < count; i++) {
+      const ax = pos[i * 3], ay = pos[i * 3 + 1], az = pos[i * 3 + 2];
+      mkArr[i * 3] = ax - fx; mkArr[i * 3 + 1] = ay - fy; mkArr[i * 3 + 2] = az - fz;
+      // Append absolute position to the ring buffer.
+      const t = this.trails[i];
+      t.abs[t.head * 3] = ax; t.abs[t.head * 3 + 1] = ay; t.abs[t.head * 3 + 2] = az;
+      t.head = (t.head + 1) % TRAIL_LEN;
+      if (t.len < TRAIL_LEN) t.len++;
+      // Rebuild the line oldest->newest, offset by focus.
+      const la = t.line.geometry.getAttribute('position') as THREE.BufferAttribute;
+      const laArr = la.array as Float32Array;
+      const start = (t.head - t.len + TRAIL_LEN) % TRAIL_LEN;
+      for (let k = 0; k < t.len; k++) {
+        const s = (start + k) % TRAIL_LEN;
+        laArr[k * 3] = t.abs[s * 3] - fx; laArr[k * 3 + 1] = t.abs[s * 3 + 1] - fy; laArr[k * 3 + 2] = t.abs[s * 3 + 2] - fz;
+      }
+      la.needsUpdate = true; t.line.geometry.setDrawRange(0, t.len); t.line.visible = t.len > 1;
+    }
+    mk.needsUpdate = true; this.particlePoints.geometry.setDrawRange(0, count);
+    this.particlePoints.visible = count > 0;
   }
 
   async init(): Promise<void> {

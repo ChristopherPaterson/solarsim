@@ -23,11 +23,18 @@ export const slotFloats = (nBodies: number): number => 1 + nBodies * FLOATS_PER_
 export type SimCommand =
   | { type: 'init'; control: SharedArrayBuffer | null; data: SharedArrayBuffer | null; nBodies: number; bodyIds: string[]; tdb: number; rate: number; ephUrl: string }
   | { type: 'setRate'; rate: number } // sim seconds per real second; 0 = paused
-  | { type: 'jumpTo'; tdb: number };
+  | { type: 'jumpTo'; tdb: number }
+  // Insert a massless test particle (P3): barycentric ecliptic-J2000 SI state.
+  | { type: 'addParticle'; x: [number, number, number]; v: [number, number, number] }
+  | { type: 'clearParticles' };
 
 // Worker -> main, no-SAB fallback only. One per sim tick; `state` is a copy
 // (nBodies*6 floats), cheap to structured-clone at ~630 B / 60 Hz.
 export type SimFrame = { type: 'frame'; tdb: number; tickUs: number; state: Float64Array };
+
+// Worker -> main, test-particle positions (barycentric ecliptic-J2000 m).
+// `pos` is count*3; low count so structured-clone per tick is cheap.
+export type ParticleFrame = { type: 'particles'; tdb: number; pos: Float64Array };
 
 export interface SharedState {
   control: SharedArrayBuffer; // Int32, CTRL_LEN words

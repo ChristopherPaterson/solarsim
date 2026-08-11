@@ -2,7 +2,7 @@
 // exposes a coarse API: read the latest state, change rate, jump time. It never
 // advances physics itself.
 
-import { createSharedState, readLatest, CTRL_TICK_US, FLOATS_PER_BODY, type SharedState, type SimFrame } from './protocol';
+import { createSharedState, readLatest, CTRL_TICK_US, FLOATS_PER_BODY, type SharedState, type SimFrame, type ParticleFrame } from './protocol';
 
 export class SimClient {
   private worker: Worker;
@@ -18,6 +18,11 @@ export class SimClient {
   private latestTdb = 0;
   private latestTickUs = 0;
 
+  // Test-particle positions (barycentric ecliptic m), whichever mode we're in.
+  // Buffer-generic is broad: postMessage payloads are Float64Array<ArrayBufferLike>.
+  private particles: Float64Array<ArrayBufferLike> = new Float64Array(0);
+  particleCount = 0;
+
   constructor(bodyIds: string[], startTdb: number, rate: number) {
     this.nBodies = bodyIds.length;
     const isolated = globalThis.crossOriginIsolated && typeof SharedArrayBuffer !== 'undefined';
@@ -29,14 +34,17 @@ export class SimClient {
       this.dataF64 = new Float64Array(this.shared.data);
     } else {
       this.latest = new Float64Array(this.nBodies * FLOATS_PER_BODY);
-      this.worker.onmessage = (e: MessageEvent<SimFrame>) => {
-        const f = e.data;
-        if (f.type !== 'frame') return;
-        this.latest!.set(f.state);
-        this.latestTdb = f.tdb;
-        this.latestTickUs = f.tickUs;
-      };
     }
+    // Bodies use the SAB ring in isolated mode, but particles always arrive by
+    // postMessage — so listen in both modes and branch on message type.
+    this.worker.onmessage = (e: MessageEvent<SimFrame | ParticleFrame>) => {
+      const m = e.data;
+      if (m.type === 'frame' && this.latest) {
+        this.latest.set(m.state); this.latestTdb = m.tdb; this.latestTickUs = m.tickUs;
+      } else if (m.type === 'particles') {
+        this.particles = m.pos; this.particleCount = m.pos.length / 3;
+      }
+    };
 
     this.worker.postMessage({
       type: 'init',
@@ -72,4 +80,17 @@ export class SimClient {
   jumpTo(tdb: number): void {
     this.worker.postMessage({ type: 'jumpTo', tdb });
   }
+
+  /** Insert a massless test particle at a barycentric ecliptic-J2000 state (SI). */
+  addParticle(x: [number, number, number], v: [number, number, number]): void {
+    this.worker.postMessage({ type: 'addParticle', x, v });
+  }
+
+  clearParticles(): void {
+    this.worker.postMessage({ type: 'clearParticles' });
+    this.particles = new Float64Array(0); this.particleCount = 0;
+  }
+
+  /** Latest test-particle positions (count*3, barycentric ecliptic m). */
+  particlePositions(): Float64Array { return this.particles; }
 }
