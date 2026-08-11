@@ -18,10 +18,16 @@ export const CTRL_LEN = 3;
 export const slotFloats = (nBodies: number): number => 1 + nBodies * FLOATS_PER_BODY;
 
 // Commands main -> worker. Low frequency, so plain postMessage (not the ring).
+// `control`/`data` are null in the no-SAB fallback (plain-http LAN, no
+// cross-origin isolation) — the worker then ships each frame back via postMessage.
 export type SimCommand =
-  | { type: 'init'; control: SharedArrayBuffer; data: SharedArrayBuffer; nBodies: number; bodyIds: string[]; tdb: number; rate: number }
+  | { type: 'init'; control: SharedArrayBuffer | null; data: SharedArrayBuffer | null; nBodies: number; bodyIds: string[]; tdb: number; rate: number }
   | { type: 'setRate'; rate: number } // sim seconds per real second; 0 = paused
   | { type: 'jumpTo'; tdb: number };
+
+// Worker -> main, no-SAB fallback only. One per sim tick; `state` is a copy
+// (nBodies*6 floats), cheap to structured-clone at ~630 B / 60 Hz.
+export type SimFrame = { type: 'frame'; tdb: number; tickUs: number; state: Float64Array };
 
 export interface SharedState {
   control: SharedArrayBuffer; // Int32, CTRL_LEN words

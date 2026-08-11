@@ -7,17 +7,11 @@ import './style.css';
 
 const app = document.getElementById('app')!;
 
-// SharedArrayBuffer (the sim core) needs a cross-origin-isolated secure context.
-// That holds over https (the tunnel) and on localhost, but NOT over plain http
-// to a LAN IP. Fail loudly rather than throwing an opaque SAB ReferenceError.
-if (!globalThis.crossOriginIsolated || typeof SharedArrayBuffer === 'undefined') {
-  app.innerHTML = `<div class="notice">
-    <h1>SolarSim</h1>
-    <p>This build needs a cross-origin-isolated secure context for the simulation core (SharedArrayBuffer).</p>
-    <p>Open it over <b>HTTPS</b> — on this LAN use <code>https://10.92.2.54:8443/</code>
-    (accept the self-signed cert), or the public <code>solarsim.commx.me</code> once the tunnel is up.</p>
-  </div>`;
-  throw new Error('SolarSim: not cross-origin isolated; needs HTTPS/localhost.');
+// The sim core prefers a SharedArrayBuffer ring, which needs a cross-origin
+// isolated secure context (https / localhost). Over plain http (LAN IP) that
+// isn't available, so SimClient transparently falls back to postMessage frames.
+if (!globalThis.crossOriginIsolated) {
+  console.info('SolarSim: no cross-origin isolation; sim running in postMessage-frame mode (HTTP fallback).');
 }
 
 const bodyIds = SOLAR_SYSTEM.map((b) => b.id);

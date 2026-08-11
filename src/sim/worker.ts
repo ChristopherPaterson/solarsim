@@ -7,7 +7,7 @@ import * as Astro from 'astronomy-engine';
 import { AU_M, DAY_S } from '../core/units';
 import { eqjToEcl } from '../core/frames';
 import { tdbToDate } from '../core/time';
-import { publish, FLOATS_PER_BODY, CTRL_TICK_US, type SimCommand } from './protocol';
+import { publish, FLOATS_PER_BODY, CTRL_TICK_US, type SimCommand, type SimFrame } from './protocol';
 
 const TICK_MS = 16; // ~60 Hz sim
 const AU_PER_DAY_TO_M_S = AU_M / DAY_S;
@@ -23,8 +23,8 @@ let rate = 0; // sim seconds per real second
 let lastReal = performance.now();
 const tmp = new Float64Array(3);
 
-function evaluate(): void {
-  if (!ctrl || !data) return;
+// Fill `scratch` with the barycentric state for the current simTdb. No publish.
+function computeState(): void {
   const date = tdbToDate(simTdb as never);
   for (let i = 0; i < nBodies; i++) {
     const s = Astro.BaryState(bodies[i], date); // AU, AU/day, equatorial J2000
@@ -36,7 +36,22 @@ function evaluate(): void {
     eqjToEcl(tmp, tmp);
     scratch[b + 3] = tmp[0]; scratch[b + 4] = tmp[1]; scratch[b + 5] = tmp[2];
   }
-  publish(ctrl, data, nBodies, simTdb, scratch);
+}
+
+// Compute one frame (timing it) and publish. SAB mode writes the ring; the
+// no-isolation fallback posts a copy back to the main thread.
+function publishFrame(): void {
+  if (!bodies.length) return;
+  const t0 = performance.now();
+  computeState();
+  const tickUs = Math.round((performance.now() - t0) * 1000);
+  if (ctrl && data) {
+    publish(ctrl, data, nBodies, simTdb, scratch);
+    Atomics.store(ctrl, CTRL_TICK_US, tickUs);
+  } else {
+    const frame: SimFrame = { type: 'frame', tdb: simTdb, tickUs, state: scratch.slice(0, nBodies * FLOATS_PER_BODY) };
+    self.postMessage(frame);
+  }
 }
 
 function tick(): void {
@@ -44,24 +59,22 @@ function tick(): void {
   const dtReal = (now - lastReal) / 1000;
   lastReal = now;
   if (rate !== 0) simTdb += dtReal * rate;
-  const t0 = performance.now();
-  evaluate();
-  if (ctrl) Atomics.store(ctrl, CTRL_TICK_US, Math.round((performance.now() - t0) * 1000));
+  publishFrame();
 }
 
 self.onmessage = (e: MessageEvent<SimCommand>) => {
   const msg = e.data;
   switch (msg.type) {
     case 'init':
-      ctrl = new Int32Array(msg.control);
-      data = new Float64Array(msg.data);
+      ctrl = msg.control ? new Int32Array(msg.control) : null;
+      data = msg.data ? new Float64Array(msg.data) : null;
       nBodies = msg.nBodies;
       bodies = msg.bodyIds.map((id) => (Astro.Body as Record<string, Astro.Body>)[id]);
       scratch = new Float64Array(nBodies * FLOATS_PER_BODY);
       simTdb = msg.tdb;
       rate = msg.rate;
       lastReal = performance.now();
-      evaluate(); // publish an initial frame immediately
+      publishFrame(); // publish an initial frame immediately
       setInterval(tick, TICK_MS);
       break;
     case 'setRate':
@@ -69,7 +82,7 @@ self.onmessage = (e: MessageEvent<SimCommand>) => {
       break;
     case 'jumpTo':
       simTdb = msg.tdb;
-      evaluate();
+      publishFrame();
       break;
   }
 };
