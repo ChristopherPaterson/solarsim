@@ -18,7 +18,7 @@
 // Upgrade to render-target depth partitioning when compositing lands in P5.
 
 import * as THREE from 'three/webgpu';
-import { pass } from 'three/tsl';
+import { pass, texture, uniform, normalWorld, dot, smoothstep } from 'three/tsl';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { FlyControls } from 'three/addons/controls/FlyControls.js';
@@ -115,6 +115,10 @@ export class Renderer {
   private post: THREE.PostProcessing | null = null;
   private spin = new THREE.Quaternion(); // scratch, reused per body per frame
   private lastUpdate = performance.now();
+  private earthIdx = -1;
+  // TSL uniform handle (Earth->Sun dir, scene frame). `any`: TSL node types are
+  // too loose to thread through dot()/emissiveNode without friction.
+  private sunDirNode: { value: THREE.Vector3 } | null = null;
   showOrbits = true;
   starField: StarField | null = null;
   isWebGPU = false;
@@ -185,12 +189,15 @@ export class Renderer {
       this.scene.add(mesh);
 
       if (def.id === 'Earth') {
-        // Night lights: emissive map so cities glow on the dark side (and bloom).
-        // Adds slightly on the day side too, but the lit albedo swamps it there.
-        const em = mat as THREE.MeshStandardMaterial;
-        em.emissiveMap = loadTex('earth_night.jpg');
-        em.emissive = new THREE.Color(0xffffff);
-        em.emissiveIntensity = 1.4;
+        this.earthIdx = i;
+        // Night lights, terminator-gated: emissive = nightMap * (1 - dayFactor),
+        // where dayFactor ramps 0->1 across the terminator from the Sun direction.
+        // So cities only light the dark side; the day side gets zero bleed.
+        const sunDir = uniform(new THREE.Vector3(1, 0, 0));
+        this.sunDirNode = sunDir as unknown as { value: THREE.Vector3 };
+        const dayF = smoothstep(-0.25, 0.15, dot(normalWorld, sunDir));
+        const em = mat as unknown as THREE.MeshStandardNodeMaterial;
+        em.emissiveNode = texture(loadTex('earth_night.jpg')).mul(dayF.oneMinus()).mul(1.6);
         // Clouds: a lit translucent shell just above the surface, alpha from the
         // cloud map's luminance. Child of Earth, so it spins with the surface.
         const clouds = new THREE.Mesh(this.unit, new THREE.MeshStandardMaterial({
@@ -272,6 +279,13 @@ export class Renderer {
         b.mesh.quaternion.copy(b.pole).multiply(this.spin);
       }
       if (b.def.id === 'Sun') this.sunLight.position.set(px, py, pz);
+    }
+    if (this.sunDirNode && this.earthIdx >= 0) {
+      // Scene-frame direction from Earth to the Sun for the night-side gate.
+      this.sunDirNode.value
+        .copy(this.bodies[this.sunIdx].mesh.position)
+        .sub(this.bodies[this.earthIdx].mesh.position)
+        .normalize();
     }
     this.updateOrbits(state);
     if (this.starField) this.starField.update(this.camera);
