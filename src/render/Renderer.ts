@@ -22,6 +22,7 @@ import { pass, texture, uniform, normalWorld, dot, smoothstep, positionWorld, ca
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { FlyControls } from 'three/addons/controls/FlyControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import type { Body } from '../core/types';
 import { PLACES, placeDir } from '../data/places';
 import { sampleOrbitPathRV } from '../core/orbital/elements';
@@ -205,6 +206,10 @@ export class Renderer {
   private ndc = new THREE.Vector2();
   // Real mission trajectories (P3.5): baked polylines + a marker at the current epoch.
   private missions: { name: string; line: THREE.Line; marker: THREE.Points; abs: Float64Array; times: Float64Array }[] = [];
+  // User-supplied glTF ship models parked in orbit around a body (public/models/).
+  private ships: { obj: THREE.Object3D; bodyIdx: number; orbitR: number; u: THREE.Vector3; w: THREE.Vector3; period: number; sizeFrac: number }[] = [];
+  private shipsVisible = false;
+  private gltf = new GLTFLoader();
   // Earth satellites (P3.5): named SGP4 groups (e.g. mixed constellations, Starlink).
   private satGroups: { name: string; satrecs: satellite.SatRec[]; names: string[]; points: THREE.Points; visible: boolean; drawIdx: number[]; drawCount: number; phase: number }[] = [];
   private pickV = new THREE.Vector3();
@@ -555,6 +560,47 @@ export class Renderer {
     if (m) { m.line.visible = on; m.marker.visible = on; }
   }
   missionNames(): string[] { return this.missions.map((m) => m.name); }
+
+  /** Park a user-supplied glTF/glb model in a circular orbit around body `bodyIdx`.
+   *  orbitR = radius in body radii, incDeg = orbit tilt, period = orbit seconds,
+   *  sizeFrac = rendered length as a fraction of the body radius. Missing files are
+   *  skipped silently, so absent models just don't appear. */
+  loadShip(url: string, bodyIdx: number, orbitR: number, incDeg: number, period: number, sizeFrac: number): void {
+    // Fetch + guard first: a missing file returns the SPA index.html (200 HTML) on
+    // the nginx deploy, which would make GLTFLoader spew parse errors. Skip unless
+    // it's real binary content.
+    fetch(url).then((res) => {
+      if (!res.ok || (res.headers.get('content-type') || '').includes('text/html')) return;
+      return res.arrayBuffer();
+    }).then((buf) => {
+      if (!buf) return;
+      this.gltf.parse(buf, '', (g) => {
+      const model = g.scene;
+      const sphere = new THREE.Box3().setFromObject(model).getBoundingSphere(new THREE.Sphere());
+      model.position.sub(sphere.center); // centre the model on its own origin
+      const norm = new THREE.Group(); norm.add(model); norm.scale.setScalar(1 / (sphere.radius || 1)); // unit-radius
+      const holder = new THREE.Group(); holder.add(norm); holder.visible = this.shipsVisible; holder.frustumCulled = false;
+      this.scene.add(holder);
+      const inc = incDeg * Math.PI / 180;
+      this.ships.push({ obj: holder, bodyIdx, orbitR, u: new THREE.Vector3(1, 0, 0), w: new THREE.Vector3(0, Math.sin(inc), Math.cos(inc)), period, sizeFrac });
+      }, () => { /* not a valid glTF — skip */ });
+    }).catch(() => { /* fetch failed — skip */ });
+  }
+  setShipsVisible(on: boolean): void { this.shipsVisible = on; for (const s of this.ships) s.obj.visible = on; }
+
+  private updateShips(): void {
+    if (!this.shipsVisible || !this.ships.length) return;
+    for (const s of this.ships) {
+      const body = this.bodies[s.bodyIdx], bpos = body.mesh.position, Rd = body.mesh.scale.x, R = Rd * s.orbitR;
+      const a = 2 * Math.PI * ((this.lastTdb / s.period) % 1), ca = Math.cos(a), sa = Math.sin(a);
+      s.obj.position.set(bpos.x + (ca * s.u.x + sa * s.w.x) * R, bpos.y + (ca * s.u.y + sa * s.w.y) * R, bpos.z + (ca * s.u.z + sa * s.w.z) * R);
+      s.obj.scale.setScalar(Rd * s.sizeFrac);
+      // face the direction of travel (tangent), up along the orbit normal (u×w).
+      const vx = -sa * s.u.x + ca * s.w.x, vy = -sa * s.u.y + ca * s.w.y, vz = -sa * s.u.z + ca * s.w.z;
+      s.obj.up.set(s.u.y * s.w.z - s.u.z * s.w.y, s.u.z * s.w.x - s.u.x * s.w.z, s.u.x * s.w.y - s.u.y * s.w.x);
+      s.obj.lookAt(s.obj.position.x + vx, s.obj.position.y + vy, s.obj.position.z + vz);
+    }
+  }
 
   /** Swap a body's sphere for a real baked shape mesh (tools/bake_moon_shapes.mjs).
    *  Positions are normalised to mean radius 1, so update() scales by body radius. */
@@ -1456,6 +1502,7 @@ export class Renderer {
     else this.renderer.render(this.scene, this.camera);
     this.updateComets();
     this.updateLod();
+    this.updateShips();
     this.updateLabels();
     this.updateCities();
   }

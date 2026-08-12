@@ -69,6 +69,21 @@ for (const [name, , color, on] of MISSIONS) {
 // Real shape models (Thomas, PDS SBN) for the lumpy Martian moons.
 renderer.loadMoonShape('Phobos', 'data/shapes/phobos.bin').catch((e) => console.warn('phobos shape:', e));
 renderer.loadMoonShape('Deimos', 'data/shapes/deimos.bin').catch((e) => console.warn('deimos shape:', e));
+// Starship easter eggs: user-supplied glTF/glb models parked in orbit. Drop the
+// files into public/models/ (see public/models/README) — absent files are skipped.
+// [file, body, orbit-radius (body radii), inclination°, orbit period (s), size (fraction of body radius)]
+const SHIPS: [string, string, number, number, number, number][] = [
+  ['shuttle.glb', 'Earth', 1.4, 28, 5400, 0.015],
+  ['enterprise-d.glb', 'Saturn', 2.6, 25, 26000, 0.05],
+  ['enterprise-e.glb', 'Jupiter', 3.0, 40, 30000, 0.045],
+  ['voyager.glb', 'Neptune', 2.4, 55, 22000, 0.05],
+  ['defiant.glb', 'Mars', 2.2, 18, 14000, 0.04],
+  ['enterprise-refit.glb', 'Uranus', 2.5, 62, 24000, 0.05],
+];
+for (const [file, body, orbitR, inc, period, size] of SHIPS) {
+  const bi = bodyIds.indexOf(body);
+  if (bi >= 0) renderer.loadShip(`models/${file}`, bi, orbitR, inc, period, size);
+}
 // Colour-coded satellite categories (name, file, colour, dot size, legend label).
 // These layers default OFF, so they're fetched lazily on first enable (below) to
 // keep ~5 MB (asteroids 2.8 MB + ~2 MB of TLEs) off the first-load payload.
@@ -131,6 +146,7 @@ hud.innerHTML = `
     <label class="row"><span class="sub">↳ ORBIT TRACKS</span><input type="checkbox" id="satorbits"></label>
     <label class="row"><span>STARLINK · ~11K</span><input type="checkbox" id="starlink"></label>
     <label class="row"><span>SPHERES OF INFLUENCE</span><input type="checkbox" id="soi"></label>
+    <label class="row"><span>STARSHIPS</span><input type="checkbox" id="ships"></label>
     <details class="sec"><summary>MISSIONS &amp; PROBES</summary><div class="body" id="missions"></div></details>
   </div></details>
 
@@ -410,6 +426,8 @@ renderer.domElement.addEventListener('dblclick', (e) => {
 
 const soiChk = $<HTMLInputElement>('#soi');
 soiChk.addEventListener('change', () => renderer.setSoiVisible(soiChk.checked));
+const shipsChk = $<HTMLInputElement>('#ships');
+shipsChk.addEventListener('change', () => renderer.setShipsVisible(shipsChk.checked));
 
 const sunIdx = bodyIds.indexOf('Sun'), earthIdx = bodyIds.indexOf('Earth');
 
