@@ -293,16 +293,21 @@ astChk.addEventListener('change', () => renderer.setAsteroidsVisible(astChk.chec
 $<HTMLInputElement>('#astcount').addEventListener('input', (e) => renderer.setAsteroidCount(+(e.target as HTMLInputElement).value));
 
 const satChk = $<HTMLInputElement>('#sats');
-satChk.addEventListener('change', () => { for (const [name] of SAT_CATS) renderer.setSatGroupVisible(name, satChk.checked); });
 const starlinkChk = $<HTMLInputElement>('#starlink');
 starlinkChk.addEventListener('change', () => renderer.setSatGroupVisible('starlink', starlinkChk.checked));
 const satOrbChk = $<HTMLInputElement>('#satorbits');
 satOrbChk.addEventListener('change', () => renderer.setSatOrbitsVisible(satOrbChk.checked));
 
-// Colour legend for the categories.
+// Per-category filters (double as the colour legend): toggle each satellite type
+// independently. The SATELLITES master flips them all at once.
 $<HTMLDivElement>('#satlegend').innerHTML = SAT_CATS
-  .map(([, , colour, , label]) => `<span class="sw"><i style="background:#${colour.toString(16).padStart(6, '0')}"></i>${label}</span>`)
+  .map(([name, , colour, , label]) => `<label class="row sat-cat"><span class="sw"><i style="background:#${colour.toString(16).padStart(6, '0')}"></i>${label}</span><input type="checkbox" data-cat="${name}"></label>`)
   .join('');
+const catChecks = Array.from($<HTMLDivElement>('#satlegend').querySelectorAll<HTMLInputElement>('input[data-cat]'));
+for (const cb of catChecks) cb.addEventListener('change', () => renderer.setSatGroupVisible(cb.dataset.cat!, cb.checked));
+satChk.addEventListener('change', () => {
+  for (const cb of catChecks) { cb.checked = satChk.checked; renderer.setSatGroupVisible(cb.dataset.cat!, satChk.checked); }
+});
 
 // Hover: name the satellite nearest the cursor, highlight its orbit ring, fade
 // the rest. Click opens Wikipedia — Special:Search resolves to the article if one
