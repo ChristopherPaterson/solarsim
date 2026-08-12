@@ -35,6 +35,17 @@
       "notes": "P3.5. Baked by tools/bake_missions.mjs from Horizons VECTORS (barycentric ecliptic-J2000, [tdb_s,x,y,z] m). One polyline per craft, rendered with an epoch marker."
     },
     {
+      "id": "moon-states",
+      "kind": "elements",
+      "file": "src/data/moons.json",
+      "source": "JPL Horizons — major-moon state vectors",
+      "url": "https://ssd.jpl.nasa.gov/horizons/",
+      "licence": "Public domain (U.S. Government work, NASA/JPL-Caltech)",
+      "attribution": "JPL Horizons — Phobos/Deimos, Galilean moons, Titan/Rhea/Iapetus/Enceladus, Titania/Oberon, Triton, Charon",
+      "retrieved": "2026-08-12",
+      "notes": "Baked by tools/bake_moons.mjs (state relative to the planet centre, ecliptic-J2000, 2026-01-01 epoch). Kepler-propagated about the parent in the worker; massless (visual rails)."
+    },
+    {
       "id": "asteroids-mpcorb",
       "kind": "elements",
       "file": "public/data/asteroids.bin",

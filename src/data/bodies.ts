@@ -1,4 +1,5 @@
 import type { Body } from '../core/types';
+import moonStates from './moons.json';
 
 // P1 catalogue: Sun, eight planets, Luna. Positions from astronomy-engine
 // (VSOP/NOVAS) in P1; P2 swaps `ephemeris.source` to baked SPK. GM values from
@@ -30,7 +31,27 @@ export const SOLAR_SYSTEM: Body[] = [
   { ...star('Saturn', 3.7931187e16, 6.0268e7, 0xe3d9a1), naifId: 699, flattening: 0.09796, j2: 1.6298e-2, rotation: { period: 38361.6, poleRA: 40.59, poleDec: 83.54, primeMeridian: 38.9 }, appearance: { colour: 0xe3d9a1, ringInner: 7.4e7, ringOuter: 1.4022e8 } },
   { ...star('Uranus', 5.793939e15, 2.5559e7, 0x9fd8e3), naifId: 799, flattening: 0.02293, rotation: { period: -62063.7, poleRA: 257.31, poleDec: -15.18, primeMeridian: 203.81 } },
   { ...star('Neptune', 6.836529e15, 2.4764e7, 0x3f66d8), naifId: 899, flattening: 0.01708, rotation: { period: 57996, poleRA: 299.36, poleDec: 43.46, primeMeridian: 253.18 } },
+  // Pluto: DE440 system barycentre (naif 9). Retrograde spin; tan/beige colour.
+  { ...star('Pluto', 9.755e11, 1.1883e6, 0xccb39a), naifId: 9, rotation: { period: -551856.7, poleRA: 132.99, poleDec: -6.16, primeMeridian: 302.7 } },
 ];
+
+// Major moons: massless (gm 0 — visual rails), Kepler-propagated about their
+// parent from the baked Horizons state (tools/bake_moons.mjs). name, parent, radius m, colour.
+const MOON_META: [string, string, number, number][] = [
+  ['Phobos', 'Mars', 1.1e4, 0x9a8a7a], ['Deimos', 'Mars', 6.2e3, 0x9a8a7a],
+  ['Io', 'Jupiter', 1.8216e6, 0xe6d96a], ['Europa', 'Jupiter', 1.5608e6, 0xd8d2be],
+  ['Ganymede', 'Jupiter', 2.6341e6, 0xa89a86], ['Callisto', 'Jupiter', 2.4103e6, 0x74655a],
+  ['Titan', 'Saturn', 2.5747e6, 0xd7a642], ['Rhea', 'Saturn', 7.640e5, 0xb0b0b0],
+  ['Iapetus', 'Saturn', 7.345e5, 0x9a8a72], ['Enceladus', 'Saturn', 2.521e5, 0xf2f2f2],
+  ['Titania', 'Uranus', 7.884e5, 0x9a9a9a], ['Oberon', 'Uranus', 7.614e5, 0x8a8a8a],
+  ['Triton', 'Neptune', 1.3534e6, 0xccb0cc], ['Charon', 'Pluto', 6.06e5, 0x9a9a9a],
+];
+const states = moonStates as unknown as Record<string, { r0: [number, number, number]; v0: [number, number, number]; epoch: number }>;
+for (const [id, parent, radius, colour] of MOON_META) {
+  const s = states[id];
+  if (!s) continue;
+  SOLAR_SYSTEM.push({ ...star(id, 0, radius, colour), parent, ephemeris: { source: 'kepler' }, relState: s });
+}
 
 /** Byte layout helper: 6 Float64 per body (x,y,z,vx,vy,vz), SI, ecliptic-J2000. */
 export const FLOATS_PER_BODY = 6;

@@ -51,6 +51,8 @@ function loadTex(file: string): THREE.Texture {
   return t;
 }
 const bodyTexture = (id: string): THREE.Texture => loadTex(`${id.toLowerCase()}.jpg`);
+// Bodies with a bundled equirectangular albedo map; everything else = flat colour.
+const TEXTURED = new Set(['Sun', 'Mercury', 'Venus', 'Earth', 'Moon', 'Mars', 'Jupiter', 'Saturn', 'Uranus', 'Neptune']);
 
 /** Mesh +Y aligned to a body's spin pole (IAU RA/Dec in deg, ICRF equatorial). */
 function poleQuat(poleRA: number, poleDec: number): THREE.Quaternion {
@@ -665,12 +667,14 @@ export class Renderer {
     defs.forEach((def, i) => {
       const isStar = def.id === 'Sun';
       if (isStar) this.sunIdx = i;
-      const map = bodyTexture(def.id);
-      // Star: unlit (self-luminous, bright enough to bloom). Planet/moon: lit by
-      // the Sun's point light, so a real terminator falls across the texture.
+      // Textured bodies (planets + Moon) load an albedo map; small moons / Pluto
+      // fall back to a flat colour. Star: unlit (self-luminous, blooms). Others
+      // lit by the Sun's point light, so a real terminator falls across them.
+      const map = TEXTURED.has(def.id) ? bodyTexture(def.id) : null;
+      const col = def.appearance.colour;
       const mat = isStar
-        ? new THREE.MeshBasicMaterial({ map })
-        : new THREE.MeshStandardMaterial({ map, roughness: 1, metalness: 0 });
+        ? new THREE.MeshBasicMaterial(map ? { map } : { color: col })
+        : new THREE.MeshStandardMaterial(map ? { map, roughness: 1, metalness: 0 } : { color: col, roughness: 1, metalness: 0 });
       const mesh = new THREE.Mesh(this.unit, mat);
       mesh.frustumCulled = true;
       const pole = poleQuat(def.rotation.poleRA, def.rotation.poleDec); // axial tilt

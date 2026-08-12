@@ -7,6 +7,7 @@ import { eqjToEcl } from '../core/frames';
 import { De440 } from '../core/ephemeris/de440';
 import { IAS15 } from '../core/integrate/ias15';
 import { porkchop } from '../core/orbital/porkchop';
+import { propagate } from '../core/orbital/kepler';
 import { SOLAR_SYSTEM } from '../data/bodies';
 import { publish, FLOATS_PER_BODY, CTRL_TICK_US, type SimCommand, type SimFrame, type ParticleFrame, type PorkchopResult } from './protocol';
 
@@ -25,6 +26,12 @@ let bodyIds: string[] = [];
 let gm: number[] = []; // aligned with bodyIds
 let eph: De440 | null = null;
 let scratch = new Float64Array(0);
+// Moons (kepler-rel about a parent) vs everything else (DE440 / N-body).
+let moonOf: (null | { parentIdx: number; r0: number[]; v0: number[]; epoch: number })[] = [];
+let moonIdx: number[] = [];   // body indices that are moons
+let nonMoon: number[] = [];   // body indices that use DE440 / the N-body system
+let nonMoonGm: number[] = [];
+const mr = new Float64Array(3), mv = new Float64Array(3);
 
 let simTdb = 0; // TDB seconds past J2000
 let rate = 0; // sim seconds per real second
@@ -45,30 +52,32 @@ let sysIas: IAS15 | null = null;
 let systemTime = 0;
 let systemDt = 43200; // adaptive, seconds (starts at half a day)
 
-// Full mutual N-body acceleration among the massive bodies (ecliptic m).
+// Full mutual N-body acceleration among the non-moon bodies (ecliptic m). Moons
+// stay on kepler-rails, so they don't force tiny timesteps here.
 function systemAccel(_t: number, x: Float64Array, a: Float64Array): void {
+  const N = nonMoon.length;
   a.fill(0);
-  for (let i = 0; i < nBodies; i++) {
-    for (let j = i + 1; j < nBodies; j++) {
+  for (let i = 0; i < N; i++) {
+    for (let j = i + 1; j < N; j++) {
       const dx = x[j * 3] - x[i * 3], dy = x[j * 3 + 1] - x[i * 3 + 1], dz = x[j * 3 + 2] - x[i * 3 + 2];
       const r2 = dx * dx + dy * dy + dz * dz, inv = 1 / (r2 * Math.sqrt(r2));
-      const fi = gm[j] * inv, fj = gm[i] * inv;
+      const fi = nonMoonGm[j] * inv, fj = nonMoonGm[i] * inv;
       a[i * 3] += fi * dx; a[i * 3 + 1] += fi * dy; a[i * 3 + 2] += fi * dz;
       a[j * 3] -= fj * dx; a[j * 3 + 1] -= fj * dy; a[j * 3 + 2] -= fj * dz;
     }
   }
 }
 
-// Seed the system integrator from DE440 (ecliptic m, m/s) at the current epoch.
+// Seed the system integrator (non-moon bodies only) from DE440 at the current epoch.
 function startPerturb(): void {
   if (!eph) return;
-  sysIas = new IAS15(nBodies, systemAccel);
-  for (let i = 0; i < nBodies; i++) {
-    eph.state(bodyIds[i], simTdb, tmp);
+  sysIas = new IAS15(nonMoon.length, systemAccel);
+  for (let j = 0; j < nonMoon.length; j++) {
+    eph.state(bodyIds[nonMoon[j]], simTdb, tmp);
     eqjToEcl(tmp.subarray(0, 3), tmp.subarray(0, 3));
     eqjToEcl(tmp.subarray(3, 6), tmp.subarray(3, 6));
-    sysIas.x.set(tmp.subarray(0, 3), i * 3);
-    sysIas.v.set(tmp.subarray(3, 6), i * 3);
+    sysIas.x.set(tmp.subarray(0, 3), j * 3);
+    sysIas.v.set(tmp.subarray(3, 6), j * 3);
   }
   systemTime = simTdb; systemDt = 43200;
   perturbing = true;
@@ -151,23 +160,28 @@ function publishParticles(): void {
 
 // Fill `scratch` with the barycentric state for the current simTdb. No publish.
 function computeState(): void {
+  // Non-moon bodies: from the N-body integrator (perturb) or DE440.
   if (perturbing && sysIas) {
-    // Off ephemeris rails: bodies come from the N-body integrator (ecliptic).
-    for (let i = 0; i < nBodies; i++) {
-      const b = i * FLOATS_PER_BODY;
-      scratch[b] = sysIas.x[i * 3]; scratch[b + 1] = sysIas.x[i * 3 + 1]; scratch[b + 2] = sysIas.x[i * 3 + 2];
-      scratch[b + 3] = sysIas.v[i * 3]; scratch[b + 4] = sysIas.v[i * 3 + 1]; scratch[b + 5] = sysIas.v[i * 3 + 2];
+    for (let j = 0; j < nonMoon.length; j++) {
+      const b = nonMoon[j] * FLOATS_PER_BODY, sj = j * 3;
+      scratch[b] = sysIas.x[sj]; scratch[b + 1] = sysIas.x[sj + 1]; scratch[b + 2] = sysIas.x[sj + 2];
+      scratch[b + 3] = sysIas.v[sj]; scratch[b + 4] = sysIas.v[sj + 1]; scratch[b + 5] = sysIas.v[sj + 2];
     }
-    return;
-  }
-  if (!eph) return;
-  for (let i = 0; i < nBodies; i++) {
-    eph.state(bodyIds[i], simTdb, tmp); // m, m/s, ICRF/equatorial-J2000
-    const b = i * FLOATS_PER_BODY;
-    eqjToEcl(tmp.subarray(0, 3), tmp.subarray(0, 3)); // position -> ecliptic
-    eqjToEcl(tmp.subarray(3, 6), tmp.subarray(3, 6)); // velocity -> ecliptic
-    scratch[b] = tmp[0]; scratch[b + 1] = tmp[1]; scratch[b + 2] = tmp[2];
-    scratch[b + 3] = tmp[3]; scratch[b + 4] = tmp[4]; scratch[b + 5] = tmp[5];
+  } else if (eph) {
+    for (const i of nonMoon) {
+      eph.state(bodyIds[i], simTdb, tmp); // m, m/s, ICRF/equatorial-J2000
+      const b = i * FLOATS_PER_BODY;
+      eqjToEcl(tmp.subarray(0, 3), tmp.subarray(0, 3)); eqjToEcl(tmp.subarray(3, 6), tmp.subarray(3, 6));
+      scratch[b] = tmp[0]; scratch[b + 1] = tmp[1]; scratch[b + 2] = tmp[2];
+      scratch[b + 3] = tmp[3]; scratch[b + 4] = tmp[4]; scratch[b + 5] = tmp[5];
+    }
+  } else return;
+  // Moons: Kepler-propagate about the parent's just-computed position (both modes).
+  for (const i of moonIdx) {
+    const m = moonOf[i]!, pb = m.parentIdx * FLOATS_PER_BODY, b = i * FLOATS_PER_BODY;
+    propagate(m.r0, m.v0, gm[m.parentIdx], simTdb - m.epoch, mr, mv);
+    scratch[b] = scratch[pb] + mr[0]; scratch[b + 1] = scratch[pb + 1] + mr[1]; scratch[b + 2] = scratch[pb + 2] + mr[2];
+    scratch[b + 3] = scratch[pb + 3] + mv[0]; scratch[b + 4] = scratch[pb + 4] + mv[1]; scratch[b + 5] = scratch[pb + 5] + mv[2];
   }
 }
 
@@ -208,6 +222,14 @@ self.onmessage = (e: MessageEvent<SimCommand>) => {
       nBodies = msg.nBodies;
       bodyIds = msg.bodyIds;
       gm = bodyIds.map((id) => SOLAR_SYSTEM.find((b) => b.id === id)?.gm ?? 0);
+      // Split bodies into moons (kepler-rel) vs the rest (DE440 / N-body).
+      moonOf = bodyIds.map((id) => {
+        const d = SOLAR_SYSTEM.find((b) => b.id === id);
+        if (!d?.relState || !d.parent) return null;
+        return { parentIdx: bodyIds.indexOf(d.parent), r0: d.relState.r0, v0: d.relState.v0, epoch: d.relState.epoch };
+      });
+      moonIdx = []; nonMoon = []; nonMoonGm = [];
+      moonOf.forEach((m, i) => { if (m) moonIdx.push(i); else { nonMoon.push(i); nonMoonGm.push(gm[i]); } });
       scratch = new Float64Array(nBodies * FLOATS_PER_BODY);
       simTdb = msg.tdb;
       particleTime = msg.tdb;

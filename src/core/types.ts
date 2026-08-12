@@ -27,6 +27,9 @@ export interface Body {
     spkId?: number;
     elements?: KeplerElements;
   };
+  // Moons not in the baked ephemeris: Kepler-propagated about `parent` from this
+  // state (barycentric ecliptic-J2000 relative to the parent, SI) at `epoch`.
+  relState?: { r0: [number, number, number]; v0: [number, number, number]; epoch: number };
   appearance: {
     colour: number; // used from P0
     albedoMap?: string; // all maps optional, added P5

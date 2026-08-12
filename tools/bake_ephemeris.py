@@ -11,11 +11,12 @@ DAY_S = 86400.0
 k = SPK.open('tools/data/de440s.bsp')
 
 # (center, target) segments to extract; sim bodies chain by summing these.
-SEGS = [(0,10),(0,1),(1,199),(0,2),(2,299),(0,3),(3,399),(3,301),(0,4),(0,5),(0,6),(0,7),(0,8)]
+SEGS = [(0,10),(0,1),(1,199),(0,2),(2,299),(0,3),(3,399),(3,301),(0,4),(0,5),(0,6),(0,7),(0,8),(0,9)]
 BODIES = {
   'Sun':[(0,10)], 'Mercury':[(0,1),(1,199)], 'Venus':[(0,2),(2,299)],
   'Earth':[(0,3),(3,399)], 'Moon':[(0,3),(3,301)], 'Mars':[(0,4)],
   'Jupiter':[(0,5)], 'Saturn':[(0,6)], 'Uranus':[(0,7)], 'Neptune':[(0,8)],
+  'Pluto':[(0,9)],  # DE440 system barycentre (Charon offset ~2000 km, invisible at 40 AU)
 }
 
 def cheb(coeff_rec, tau):  # coeff_rec: (3, deg+1); tau in [-1,1]
