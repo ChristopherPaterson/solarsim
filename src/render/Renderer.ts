@@ -68,12 +68,22 @@ const TEXTURED = new Set(['Sun', 'Mercury', 'Venus', 'Earth', 'Moon', 'Mars', 'J
   'Pluto', 'Ganymede', 'Callisto', 'Europa', 'Phobos', 'Deimos']);
 
 /** Mesh +Y aligned to a body's spin pole (IAU RA/Dec in deg, ICRF equatorial). */
-function poleQuat(poleRA: number, poleDec: number): THREE.Quaternion {
+// IAU body-fixed basis in the ecliptic scene frame. axisP = spin pole. axisQ =
+// the prime-meridian reference at W=0: the ascending node of the body equator on
+// the ICRF equator, RA = poleRA+90. axisE = axisP×axisQ (W=90° direction). The
+// prime meridian (Greenwich, which the equirectangular texture centres) at spin
+// angle W is then axisQ·cosW + axisE·sinW. This references the texture to the
+// node the way IAU W is defined — a plain shortest-arc pole quaternion left the
+// azimuth free, which put every texture ~90° off the true sub-solar point.
+function iauBasis(poleRA: number, poleDec: number): { P: THREE.Vector3; Q: THREE.Vector3; E: THREE.Vector3 } {
   const ra = (poleRA * Math.PI) / 180, dec = (poleDec * Math.PI) / 180;
-  const eq = new Float64Array([Math.cos(dec) * Math.cos(ra), Math.cos(dec) * Math.sin(ra), Math.sin(dec)]);
-  eqjToEcl(eq, eq); // ephemeris frame is ecliptic-J2000, so the pole must be too
-  const up = new THREE.Vector3(eq[0], eq[1], eq[2]).normalize();
-  return new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), up);
+  const pe = new Float64Array([Math.cos(dec) * Math.cos(ra), Math.cos(dec) * Math.sin(ra), Math.sin(dec)]);
+  const qe = new Float64Array([-Math.sin(ra), Math.cos(ra), 0]); // node: RA = poleRA+90, on the equator
+  eqjToEcl(pe, pe); eqjToEcl(qe, qe);
+  const P = new THREE.Vector3(pe[0], pe[1], pe[2]).normalize();
+  const Q = new THREE.Vector3(qe[0], qe[1], qe[2]).normalize();
+  const E = new THREE.Vector3().crossVectors(P, Q).normalize();
+  return { P, Q, E };
 }
 
 /** Ring lying in the XZ plane (normal +Y = local pole), radii in planet-radii,
@@ -124,7 +134,12 @@ function ringTexture(): THREE.CanvasTexture {
 export interface RenderBody {
   def: Body;
   mesh: THREE.Mesh;
-  pole: THREE.Quaternion; // tilt: local +Y -> ecliptic spin pole
+  // IAU body-fixed basis (ecliptic scene frame): axisP = spin pole, axisQ = the
+  // W=0 prime-meridian reference (ascending node of the equator on the ICRF
+  // equator), axisE = axisP × axisQ (the W=90° direction). See iauBasis().
+  axisP: THREE.Vector3;
+  axisQ: THREE.Vector3;
+  axisE: THREE.Vector3;
   realShape?: boolean; // real baked shape mesh loaded -> scale uniformly by radius
 }
 
@@ -141,6 +156,7 @@ export class Renderer {
   private fly: FlyControls | null = null;
   private post: THREE.PostProcessing | null = null;
   private spin = new THREE.Quaternion(); // scratch, reused per body per frame
+  private vM = new THREE.Vector3(); private vZ = new THREE.Vector3(); private rotM4 = new THREE.Matrix4(); // body-orientation scratch
   private lastUpdate = performance.now();
   private earthIdx = -1;
   private earthClouds: THREE.Mesh | null = null;
@@ -929,8 +945,7 @@ export class Renderer {
         : new THREE.MeshStandardMaterial(map ? { map, roughness: 1, metalness: 0 } : { color: col, roughness: 1, metalness: 0 });
       const mesh = new THREE.Mesh(this.unit, mat);
       mesh.frustumCulled = true;
-      const pole = poleQuat(def.rotation.poleRA, def.rotation.poleDec); // axial tilt
-      mesh.quaternion.copy(pole);
+      const { P, Q, E } = iauBasis(def.rotation.poleRA, def.rotation.poleDec); // axial tilt + node ref
       this.scene.add(mesh);
 
       if (def.atmosphere) {
@@ -970,7 +985,7 @@ export class Renderer {
         ring.frustumCulled = false;
         mesh.add(ring); // parent tilt (poleQuat) lays the ring in the equatorial plane
       }
-      const rb: RenderBody = { def, mesh, pole };
+      const rb: RenderBody = { def, mesh, axisP: P, axisQ: Q, axisE: E };
       this.bodies.push(rb);
       const el = document.createElement('div');
       el.className = 'body-label'; el.textContent = def.id.toUpperCase(); el.style.display = 'none';
@@ -1112,13 +1127,14 @@ export class Renderer {
       else if (tri) b.mesh.scale.set(r * tri[0], r * tri[1], r * tri[2]);
       else b.mesh.scale.set(r, r * (1 - (b.def.flattening ?? 0)), r);
       // Live axial rotation: W = W0 + 360*(t/period) deg about the pole. Negative
-      // period is retrograde (Venus, Uranus). Visible once time is running fast.
+      // period is retrograde (Venus, Uranus). Orient the body-fixed frame so the
+      // texture's Greenwich sits at the true prime meridian (axisQ·cosW + axisE·sinW).
       const p = b.def.rotation.period;
-      if (p !== 0) {
-        const w = ((b.def.rotation.primeMeridian + 360 * (tdb / p)) % 360) * (Math.PI / 180);
-        this.spin.setFromAxisAngle(Y_AXIS, w);
-        b.mesh.quaternion.copy(b.pole).multiply(this.spin);
-      }
+      const w = (b.def.rotation.primeMeridian + (p !== 0 ? 360 * (tdb / p) : 0)) * (Math.PI / 180);
+      this.vM.copy(b.axisQ).multiplyScalar(Math.cos(w)).addScaledVector(b.axisE, Math.sin(w)); // Greenwich dir
+      this.vZ.crossVectors(this.vM, b.axisP); // local +Z (west), completing a right-handed basis
+      this.rotM4.makeBasis(this.vM, b.axisP, this.vZ);
+      b.mesh.quaternion.setFromRotationMatrix(this.rotM4);
       if (b.def.id === 'Sun') this.sunLight.position.set(px, py, pz);
     }
     // Stop the orbit camera at the focused body's surface (it's pinned at the
