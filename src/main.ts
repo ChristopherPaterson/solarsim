@@ -111,10 +111,7 @@ insertChk.addEventListener('change', () => {
 // Ghost: drop a test particle at the focus body's exact state. It integrates in
 // the sim's Newtonian field and should track the body's ephemeris orbit line;
 // the slow divergence (only 10 bodies, no GR) is the visible correctness check.
-$<HTMLButtonElement>('#ghost').addEventListener('click', () => {
-  const b = focusIdx * 6;
-  sim.addParticle([state[b], state[b + 1], state[b + 2]], [state[b + 3], state[b + 4], state[b + 5]]);
-});
+$<HTMLButtonElement>('#ghost').addEventListener('click', () => sim.ghostBody(focusIdx));
 $<HTMLButtonElement>('#clearp').addEventListener('click', () => sim.clearParticles());
 
 // Perturb-everything: whole system goes full N-body, with a clear signal that

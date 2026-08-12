@@ -25,8 +25,12 @@ export type SimCommand =
   | { type: 'setRate'; rate: number } // sim seconds per real second; 0 = paused
   | { type: 'jumpTo'; tdb: number }
   // Insert a massless test particle (P3): barycentric ecliptic-J2000 SI state.
-  | { type: 'addParticle'; x: [number, number, number]; v: [number, number, number] }
+  // `exclude` is a body index the particle ignores (a ghost skips itself), or -1.
+  | { type: 'addParticle'; x: [number, number, number]; v: [number, number, number]; exclude: number }
   | { type: 'clearParticles' }
+  // Ghost a body: worker seeds a particle from its OWN ephemeris at its OWN
+  // clock (avoids the main<->worker time skew at high warp) and excludes it.
+  | { type: 'ghostBody'; index: number }
   // Perturb-everything (P3): integrate the whole system off ephemeris rails.
   | { type: 'perturb'; on: boolean };
 

@@ -81,9 +81,15 @@ export class SimClient {
     this.worker.postMessage({ type: 'jumpTo', tdb });
   }
 
-  /** Insert a massless test particle at a barycentric ecliptic-J2000 state (SI). */
-  addParticle(x: [number, number, number], v: [number, number, number]): void {
-    this.worker.postMessage({ type: 'addParticle', x, v });
+  /** Insert a massless test particle at a barycentric ecliptic-J2000 state (SI).
+   *  `exclude` is a body index the particle ignores (a ghost skips itself). */
+  addParticle(x: [number, number, number], v: [number, number, number], exclude = -1): void {
+    this.worker.postMessage({ type: 'addParticle', x, v, exclude });
+  }
+
+  /** Ghost a body by index: the worker seeds the particle from its own ephemeris. */
+  ghostBody(index: number): void {
+    this.worker.postMessage({ type: 'ghostBody', index });
   }
 
   clearParticles(): void {

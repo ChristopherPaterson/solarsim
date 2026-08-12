@@ -12,6 +12,10 @@ import { publish, FLOATS_PER_BODY, CTRL_TICK_US, type SimCommand, type SimFrame,
 const TICK_MS = 16; // ~60 Hz sim
 const MAX_PARTICLES = 64;
 const MAX_SUBSTEPS = 400; // per frame, so extreme warp can't freeze the worker
+const SOFT2 = 1e7 * 1e7; // Plummer softening (~1e4 km): kills the 1/r² singularity
+// when a test particle sits on a body (ghosting) or grazes one; negligible at
+// orbital distances (~1e11 m).
+const GM_SUN = 1.32712440018e20;
 
 let ctrl: Int32Array | null = null;
 let data: Float64Array | null = null;
@@ -29,6 +33,7 @@ const tmp = new Float64Array(6);
 // --- test particles (P3): massless, integrated in the moving ephemeris field ---
 let ias: IAS15 | null = null;
 let nParticles = 0;
+let excludes: number[] = []; // per-particle body index to ignore (ghost skips self), or -1
 let particleTime = 0; // integrator clock (TDB s); tracks simTdb
 let particleDt = 3600; // adaptive step, seconds
 const massPos = new Float64Array(3 * 32); // massive-body positions (ecliptic), grown as needed
@@ -66,7 +71,7 @@ function startPerturb(): void {
   }
   systemTime = simTdb; systemDt = 43200;
   perturbing = true;
-  ias = null; nParticles = 0; // test particles don't mix into the N-body run (MVP)
+  ias = null; nParticles = 0; excludes = []; // test particles don't mix into the N-body run (MVP)
   self.postMessage({ type: 'particles', tdb: simTdb, pos: new Float64Array(0) } as ParticleFrame);
 }
 
@@ -93,10 +98,12 @@ function particleAccel(t: number, x: Float64Array, a: Float64Array): void {
   const count = x.length / 3;
   for (let p = 0; p < count; p++) {
     const px = x[p * 3], py = x[p * 3 + 1], pz = x[p * 3 + 2];
+    const skip = excludes[p];
     let ax = 0, ay = 0, az = 0;
     for (let j = 0; j < nBodies; j++) {
+      if (j === skip) continue; // a ghost ignores the body it shadows
       const dx = massPos[j * 3] - px, dy = massPos[j * 3 + 1] - py, dz = massPos[j * 3 + 2] - pz;
-      const r2 = dx * dx + dy * dy + dz * dz;
+      const r2 = dx * dx + dy * dy + dz * dz + SOFT2;
       const inv = gm[j] / (r2 * Math.sqrt(r2));
       ax += inv * dx; ay += inv * dy; az += inv * dz;
     }
@@ -104,24 +111,33 @@ function particleAccel(t: number, x: Float64Array, a: Float64Array): void {
   }
 }
 
-function addParticle(x: [number, number, number], v: [number, number, number]): void {
+function addParticle(x: [number, number, number], v: [number, number, number], exclude: number): void {
   if (nParticles >= MAX_PARTICLES) return;
   const next = new IAS15(nParticles + 1, particleAccel);
   if (ias) { next.x.set(ias.x.subarray(0, nParticles * 3)); next.v.set(ias.v.subarray(0, nParticles * 3)); }
   next.x.set(x, nParticles * 3); next.v.set(v, nParticles * 3);
-  ias = next; nParticles++;
+  ias = next; excludes[nParticles] = exclude; nParticles++;
   particleTime = simTdb; particleDt = 3600; // (re)seed the shared integrator clock
 }
 
 // Advance particles up to `target`, adaptively, bounded so warp can't hang us.
 function integrateParticles(target: number): void {
   if (!ias || nParticles === 0) return;
+  // Cap the step at a fraction of the innermost particle's dynamical time, so at
+  // extreme warp the adaptive controller can't grow dt until it aliases fast
+  // perturbations (e.g. the Moon). Scales with distance: inner small, outer large.
+  let rmin = Infinity;
+  for (let p = 0; p < nParticles; p++) {
+    const r = Math.hypot(ias.x[p * 3], ias.x[p * 3 + 1], ias.x[p * 3 + 2]);
+    if (r < rmin) rmin = r;
+  }
+  const dtCap = (2 * Math.PI * Math.sqrt((rmin * rmin * rmin) / GM_SUN)) / 200;
   let steps = 0;
   while (particleTime < target - 1e-6 && steps < MAX_SUBSTEPS) {
-    const h = Math.min(particleDt, target - particleTime);
+    const h = Math.min(particleDt, dtCap, target - particleTime);
     const err = ias.step(particleTime, h);
     particleTime += h;
-    particleDt = ias.nextDt(particleDt, err);
+    particleDt = Math.min(ias.nextDt(particleDt, err), dtCap);
     steps++;
   }
 }
@@ -225,11 +241,20 @@ self.onmessage = (e: MessageEvent<SimCommand>) => {
       publishFrame();
       break;
     case 'addParticle':
-      addParticle(msg.x, msg.v);
+      addParticle(msg.x, msg.v, msg.exclude);
       publishParticles();
       break;
+    case 'ghostBody':
+      if (eph) {
+        eph.state(bodyIds[msg.index], simTdb, tmp); // this worker's own clock
+        eqjToEcl(tmp.subarray(0, 3), tmp.subarray(0, 3));
+        eqjToEcl(tmp.subarray(3, 6), tmp.subarray(3, 6));
+        addParticle([tmp[0], tmp[1], tmp[2]], [tmp[3], tmp[4], tmp[5]], msg.index);
+        publishParticles();
+      }
+      break;
     case 'clearParticles':
-      ias = null; nParticles = 0;
+      ias = null; nParticles = 0; excludes = [];
       self.postMessage({ type: 'particles', tdb: simTdb, pos: new Float64Array(0) } as ParticleFrame);
       break;
   }
