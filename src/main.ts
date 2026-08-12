@@ -109,6 +109,8 @@ hud.innerHTML = `
     <label class="row"><span>LABELS</span><input type="checkbox" id="labels" checked></label>
     <label class="row"><span>TACTICAL</span><input type="checkbox" id="tactical" checked></label>
     <label class="row"><span>ORBIT PATHS</span><input type="checkbox" id="orbits" checked></label>
+    <label class="row"><span>OBSERVER · SKY</span><input type="checkbox" id="observer"></label>
+    <div class="row" id="obsrow" style="display:none"><span class="sub">↳ LAT / LON</span><span><input id="obslat" type="number" value="-33.87" step="0.5" style="width:52px"><input id="obslon" type="number" value="151.21" step="0.5" style="width:52px"></span></div>
     <label class="row"><span>FLY · WASD+DRAG</span><input type="checkbox" id="fly"></label>
   </div></details>
 
@@ -252,6 +254,26 @@ $<HTMLSelectElement>('#frame').addEventListener('change', (e) => renderer.setFra
 // live two-body preview ellipse shows the orbit), release to commit to the sim.
 const insertChk = $<HTMLInputElement>('#insert');
 const flyChk = $<HTMLInputElement>('#fly');
+// Surface observer: stand on Earth at lat/lon and look at the sky (drag to pan
+// alt/az, wheel to zoom). Forces Earth focus + true scale so the sky reads right.
+const observerChk = $<HTMLInputElement>('#observer');
+const obsRow = $<HTMLDivElement>('#obsrow');
+const obsLat = $<HTMLInputElement>('#obslat'), obsLon = $<HTMLInputElement>('#obslon');
+observerChk.addEventListener('change', () => {
+  obsRow.style.display = observerChk.checked ? 'flex' : 'none';
+  if (observerChk.checked) {
+    if (flyChk.checked) { flyChk.checked = false; renderer.setFlyMode(false); }
+    if (!trueScale.checked) { trueScale.checked = true; trueScale.dispatchEvent(new Event('change')); }
+    focusBody(earthIdx);
+    renderer.setObserver(parseFloat(obsLat.value) || 0, parseFloat(obsLon.value) || 0);
+  } else {
+    renderer.setObserver(null);
+    focusBody(earthIdx); // reframe from the surface back to an orbit view of Earth
+  }
+});
+for (const el of [obsLat, obsLon]) el.addEventListener('change', () => {
+  if (observerChk.checked) renderer.setObserver(parseFloat(obsLat.value) || 0, parseFloat(obsLon.value) || 0);
+});
 insertChk.addEventListener('change', () => {
   if (insertChk.checked && flyChk.checked) { flyChk.checked = false; renderer.setFlyMode(false); }
   renderer.setInsertMode(insertChk.checked, (x, v) => sim.addParticle(x, v));

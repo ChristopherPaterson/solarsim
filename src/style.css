@@ -99,6 +99,13 @@ canvas { display: block; }
 .place-label.launch { color: var(--amber); }
 .place-label.launch i { border-radius: 0; background: var(--amber); transform: rotate(45deg); }
 
+/* Surface-observer compass markers. */
+.cardinal {
+  position: absolute; transform: translate(-50%, -50%);
+  color: var(--cyan); font: 700 13px/1 ui-monospace, monospace; letter-spacing: 0.1em;
+  text-shadow: 0 0 6px rgba(0, 0, 0, 1), 0 0 3px rgba(0, 0, 0, 1);
+}
+
 /* ---- Tactical scope (top-down ecliptic radar) ------------------------------ */
 .tactical { position: fixed; top: 12px; right: 12px; width: 232px; height: 232px; z-index: 8; }
 

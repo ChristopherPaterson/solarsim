@@ -167,6 +167,13 @@ export class Renderer {
   private orbits: { idx: number; centerIdx: number; mu: number; line: THREE.Line; scratch: Float64Array }[] = [];
   private orbitFar = 0; // farthest visible orbit vertex from focus, for the camera far plane
   private fly: FlyControls | null = null;
+  // Surface-observer mode: stand at (lat, lon) on Earth and look at the sky in
+  // alt/az. az measured from North toward East; alt from the horizon up.
+  private observer: { lat: number; lon: number; az: number; alt: number } | null = null;
+  private obsUp = new THREE.Vector3(); private obsNorth = new THREE.Vector3(); private obsEast = new THREE.Vector3(); private obsLook = new THREE.Vector3();
+  private horizonLine!: THREE.Line;
+  private cardinals: { el: HTMLDivElement; getDir: () => THREE.Vector3 }[] = [];
+  private obsDrag: { x: number; y: number } | null = null;
   private post: THREE.PostProcessing | null = null;
   private spin = new THREE.Quaternion(); // scratch, reused per body per frame
   private vM = new THREE.Vector3(); private vZ = new THREE.Vector3(); private rotM4 = new THREE.Matrix4(); // body-orientation scratch
@@ -296,6 +303,32 @@ export class Renderer {
     this.sunLight = new THREE.PointLight(0xffffff, 1, 0, 0);
     this.scene.add(this.sunLight);
     this.scene.add(new THREE.AmbientLight(0x222233, 1.2));
+
+    // Surface-observer horizon ring (great circle at altitude 0) + N/E/S/W markers.
+    const hg = new THREE.BufferGeometry();
+    const HN = 128, harr = new Float32Array((HN + 1) * 3);
+    for (let k = 0; k <= HN; k++) { const t = (k / HN) * 2 * Math.PI; harr[k * 3] = Math.cos(t); harr[k * 3 + 1] = 0; harr[k * 3 + 2] = Math.sin(t); }
+    hg.setAttribute('position', new THREE.Float32BufferAttribute(harr, 3));
+    this.horizonLine = new THREE.Line(hg, new THREE.LineBasicMaterial({ color: 0x4fd8e8, transparent: true, opacity: 0.55, depthTest: false }));
+    this.horizonLine.frustumCulled = false; this.horizonLine.renderOrder = 5; this.horizonLine.visible = false; this.scene.add(this.horizonLine);
+    for (const d of ['N', 'E', 'S', 'W'] as const) {
+      const el = document.createElement('div'); el.className = 'cardinal'; el.textContent = d; el.style.display = 'none';
+      this.cityBox.appendChild(el);
+      const getDir = () => d === 'N' ? this.obsNorth : d === 'S' ? this.obsNorth.clone().negate() : d === 'E' ? this.obsEast : this.obsEast.clone().negate();
+      this.cardinals.push({ el, getDir });
+    }
+    // Look controls: drag to pan az/alt (horizon stays level), wheel to zoom FOV.
+    const obsCanvas = this.renderer.domElement;
+    obsCanvas.addEventListener('pointerdown', (e) => { if (this.observer) this.obsDrag = { x: e.clientX, y: e.clientY }; });
+    obsCanvas.addEventListener('pointermove', (e) => {
+      if (!this.observer || !this.obsDrag) return;
+      const dx = e.clientX - this.obsDrag.x, dy = e.clientY - this.obsDrag.y; this.obsDrag = { x: e.clientX, y: e.clientY };
+      const s = this.camera.fov / 500; // slower when zoomed in
+      this.observer.az = (this.observer.az - dx * s + 360) % 360;
+      this.observer.alt = Math.max(-20, Math.min(90, this.observer.alt + dy * s));
+    });
+    window.addEventListener('pointerup', () => { this.obsDrag = null; });
+    obsCanvas.addEventListener('wheel', (e) => { if (!this.observer) return; e.preventDefault(); this.camera.fov = Math.max(12, Math.min(90, this.camera.fov + Math.sign(e.deltaY) * 3)); this.camera.updateProjectionMatrix(); }, { passive: false });
 
     this.setupParticles();
     this.setupInsert();
@@ -1275,16 +1308,69 @@ export class Renderer {
     this.updateMissions(tdb);
     this.updateVessel(tdb);
     this.updateTransfer();
+    if (this.observer) this.updateObserver(); // set the camera before stars recentre on it
     if (this.starField) this.starField.update(this.camera);
 
     const now = performance.now();
     const dt = Math.min(0.1, (now - this.lastUpdate) / 1000);
     this.lastUpdate = now;
-    if (this.fly) {
+    if (this.observer) { /* camera driven by updateObserver + look drag */ }
+    else if (this.fly) {
       this.fly.movementSpeed = Math.max(1e6, this.camera.position.length() * 0.6); // scale with distance
       this.fly.update(dt);
     } else {
       this.controls.update();
+    }
+  }
+
+  /** Enter surface-observer mode at (lat, lon), or leave it with lat=null. */
+  setObserver(lat: number | null, lon = 0): void {
+    if (lat === null) {
+      if (!this.observer) return;
+      this.observer = null; this.horizonLine.visible = false;
+      for (const c of this.cardinals) c.el.style.display = 'none';
+      this.camera.fov = 50; this.camera.up.set(0, 1, 0); this.camera.updateProjectionMatrix();
+      this.controls.enabled = true;
+      return;
+    }
+    if (this.fly) this.setFlyMode(false);
+    this.observer = { lat, lon, az: 0, alt: 30 };
+    this.controls.enabled = false; this.horizonLine.visible = true;
+  }
+
+  /** Altitude/azimuth (deg) of a scene-frame unit direction in the observer frame. */
+  altAzOf(dir: THREE.Vector3): { alt: number; az: number } {
+    const alt = Math.asin(Math.max(-1, Math.min(1, dir.dot(this.obsUp)))) * 180 / Math.PI;
+    let az = Math.atan2(dir.dot(this.obsEast), dir.dot(this.obsNorth)) * 180 / Math.PI;
+    if (az < 0) az += 360;
+    return { alt, az };
+  }
+
+  // Stand at (lat, lon) on Earth's surface, look in alt/az. Earth's IAU rotation
+  // carries the local frame, so the sky rises/sets correctly as time runs.
+  private updateObserver(): void {
+    const o = this.observer; if (!o || this.earthIdx < 0) return;
+    const eb = this.bodies[this.earthIdx], q = eb.mesh.quaternion, Rd = eb.mesh.scale.x, D2R = Math.PI / 180;
+    const la = o.lat * D2R, lo = o.lon * D2R, cla = Math.cos(la), sla = Math.sin(la), clo = Math.cos(lo), slo = Math.sin(lo);
+    this.obsUp.set(cla * clo, sla, -cla * slo).applyQuaternion(q).normalize();
+    this.obsNorth.set(-sla * clo, cla, sla * slo).applyQuaternion(q).normalize();
+    this.obsEast.crossVectors(this.obsNorth, this.obsUp).normalize(); // ENU: E = N x U
+    this.camera.position.copy(eb.mesh.position).addScaledVector(this.obsUp, Rd * 1.0002);
+    this.camera.up.copy(this.obsUp);
+    const az = o.az * D2R, alt = o.alt * D2R, ca = Math.cos(alt);
+    this.obsLook.copy(this.obsNorth).multiplyScalar(Math.cos(az) * ca).addScaledVector(this.obsEast, Math.sin(az) * ca).addScaledVector(this.obsUp, Math.sin(alt));
+    this.camera.lookAt(this.camera.position.x + this.obsLook.x, this.camera.position.y + this.obsLook.y, this.camera.position.z + this.obsLook.z);
+    // Horizon ring (great circle at alt 0) oriented into the E-U-N basis, at a few
+    // Earth radii so it reads as the horizon; N/E/S/W markers at their directions.
+    this.rotM4.makeBasis(this.obsEast, this.obsUp, this.obsNorth);
+    this.horizonLine.quaternion.setFromRotationMatrix(this.rotM4);
+    this.horizonLine.position.copy(this.camera.position); this.horizonLine.scale.setScalar(Rd * 4);
+    const W = this.renderer.domElement.clientWidth, H = this.renderer.domElement.clientHeight;
+    for (const c of this.cardinals) {
+      this.lp.copy(c.getDir()).multiplyScalar(Rd * 4).add(this.camera.position).project(this.camera);
+      if (this.lp.z >= 1) { c.el.style.display = 'none'; continue; }
+      c.el.style.display = 'block';
+      c.el.style.left = `${(this.lp.x * 0.5 + 0.5) * W}px`; c.el.style.top = `${(-this.lp.y * 0.5 + 0.5) * H}px`;
     }
   }
 
