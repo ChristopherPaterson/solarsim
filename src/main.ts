@@ -44,6 +44,11 @@ const MISSIONS: [string, string, number, boolean][] = [
   ['voyager1', 'Voyager 1', 0xff5aa0, false], ['voyager2', 'Voyager 2', 0xff8a5a, false],
   ['newhorizons', 'New Horizons', 0x88ff88, false], ['parker', 'Parker Solar Probe', 0xffd24a, false],
   ['juno', 'Juno', 0x9a7bff, false], ['cassini', 'Cassini', 0x7affc0, false], ['jwst', 'JWST', 0xffffff, false],
+  // Active interplanetary probes (current position shown by the epoch marker).
+  ['solarorbiter', 'Solar Orbiter', 0xffcf6a, false], ['bepicolombo', 'BepiColombo', 0xc0a0ff, false],
+  ['lucy', 'Lucy', 0x6ad0ff, false], ['psyche', 'Psyche', 0xff9a6a, false],
+  ['europaclipper', 'Europa Clipper', 0x9affd0, false], ['juice', 'JUICE', 0xffa0d0, false],
+  ['osirisapex', 'OSIRIS-APEX', 0xd0d060, false],
 ];
 for (const [name, , color, on] of MISSIONS) {
   renderer.loadMission(name, `data/missions/${name}.bin`, color).then(() => renderer.setMissionVisible(name, on)).catch((e) => console.warn(name, e));
@@ -214,10 +219,18 @@ $<HTMLButtonElement>('#porkchop').addEventListener('click', togglePorkchop);
 
 // Mission toggles, colour-coded to their trajectories.
 const missionsBox = $<HTMLDivElement>('#missions');
-missionsBox.innerHTML = MISSIONS.map(([name, label, color, on]) =>
+missionsBox.innerHTML =
+  `<label class="row"><span class="sub">↳ SHOW ALL</span><input type="checkbox" id="allprobes"></label>` +
+  MISSIONS.map(([name, label, color, on]) =>
   `<label class="row" style="font-size:10px"><span style="color:#${color.toString(16).padStart(6, '0')}">${label}</span><input type="checkbox" data-m="${name}" ${on ? 'checked' : ''}></label>`).join('');
-missionsBox.querySelectorAll<HTMLInputElement>('input[data-m]').forEach((chk) =>
+const missionChks = [...missionsBox.querySelectorAll<HTMLInputElement>('input[data-m]')];
+missionChks.forEach((chk) =>
   chk.addEventListener('change', () => renderer.setMissionVisible(chk.dataset.m!, chk.checked)));
+// Master toggle: show/hide every probe at once ("where's everything right now").
+$<HTMLInputElement>('#allprobes').addEventListener('change', (e) => {
+  const on = (e.target as HTMLInputElement).checked;
+  for (const chk of missionChks) { chk.checked = on; renderer.setMissionVisible(chk.dataset.m!, on); }
+});
 const astChk = $<HTMLInputElement>('#asteroids');
 astChk.addEventListener('change', () => renderer.setAsteroidsVisible(astChk.checked));
 $<HTMLInputElement>('#astcount').addEventListener('input', (e) => renderer.setAsteroidCount(+(e.target as HTMLInputElement).value));
@@ -241,7 +254,9 @@ const satTip = document.createElement('div');
 satTip.style.cssText = 'position:fixed;pointer-events:none;background:rgba(10,14,20,0.92);border:1px solid #2a3442;color:#cfe;font:10px ui-monospace,monospace;padding:2px 7px;border-radius:3px;display:none;z-index:20';
 app.appendChild(satTip);
 let hoverName: string | null = null;
+let downX = 0, downY = 0, dragging = false;
 window.addEventListener('mousemove', (e) => {
+  if (dragging) return; // no hover picking/highlight thrash while orbiting the camera
   const hit = renderer.pickSatellite(e.clientX, e.clientY);
   hoverName = hit?.name ?? null;
   if (hit) {
@@ -252,8 +267,11 @@ window.addEventListener('mousemove', (e) => {
   if (satOrbChk.checked) renderer.highlightSatOrbit(hit?.key ?? null);
 });
 // Distinguish a click from an orbit drag: only open wiki if the pointer barely moved.
-let downX = 0, downY = 0;
-renderer.domElement.addEventListener('pointerdown', (e) => { downX = e.clientX; downY = e.clientY; });
+renderer.domElement.addEventListener('pointerdown', (e) => {
+  downX = e.clientX; downY = e.clientY; dragging = true;
+  satTip.style.display = 'none'; renderer.highlightSatOrbit(null); // clear hover state during drag
+});
+window.addEventListener('pointerup', () => { dragging = false; });
 renderer.domElement.addEventListener('click', (e) => {
   if (Math.hypot(e.clientX - downX, e.clientY - downY) > 5) return; // was a drag
   if (hoverName) window.open(`https://en.wikipedia.org/wiki/Special:Search?search=${encodeURIComponent(hoverName.replace(/\s+/g, ' ').trim())}`, '_blank', 'noopener');

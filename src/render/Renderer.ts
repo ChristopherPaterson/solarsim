@@ -269,7 +269,9 @@ export class Renderer {
       g.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(60000 * 3), 3));
       g.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(60000 * 3), 3));
       this.orbitBase = new Float32Array(60000 * 3); // per-vertex category colour at full strength
-      this.satOrbits = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.55, depthTest: false }));
+      // depthTest on (depthWrite off): rings occlude behind bodies instead of
+      // ghosting over the Moon/planets when they sit between camera and Earth.
+      this.satOrbits = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.55, depthWrite: false }));
     }
     this.satOrbits.frustumCulled = false; this.satOrbits.visible = false; this.satOrbits.geometry.setDrawRange(0, 0); this.scene.add(this.satOrbits);
     const el = this.renderer.domElement;

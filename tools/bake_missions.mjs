@@ -9,14 +9,24 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 
 const J2000 = 2451545.0, DAY = 86400;
 // name, NAIF id, launch/start, stop, step (chosen for a few hundred points).
+// stop dates on still-active craft run to ~now so their epoch marker shows the
+// current position. Cassini (dead 2017) keeps its real end.
 const MISSIONS = [
   ['voyager1', '-31', '1977-09-06', '2050-01-01', '10d'], // fine step keeps the Jupiter/Saturn flybys
   ['voyager2', '-32', '1977-08-22', '2050-01-01', '20d'],
   ['newhorizons', '-98', '2006-01-20', '2035-01-01', '20d'],
-  ['parker', '-96', '2018-08-13', '2025-08-01', '3d'],
-  ['juno', '-61', '2011-08-06', '2025-08-01', '10d'],
+  ['parker', '-96', '2018-08-13', '2026-09-01', '3d'],
+  ['juno', '-61', '2011-08-06', '2026-09-01', '10d'],
   ['cassini', '-82', '1997-10-16', '2017-09-15', '15d'],
-  ['jwst', '-170', '2022-01-25', '2025-08-01', '6d'],
+  ['jwst', '-170', '2022-01-25', '2026-09-01', '6d'],
+  // Active interplanetary probes (Horizons by negative NAIF id).
+  ['solarorbiter', '-144', '2020-02-11', '2026-09-01', '15d'],
+  ['bepicolombo', '-121', '2018-10-21', '2026-09-01', '15d'],
+  ['lucy', '-49', '2021-10-17', '2026-09-01', '12d'],
+  ['psyche', '-255', '2023-10-14', '2026-09-01', '10d'],
+  ['europaclipper', '-159', '2024-10-15', '2026-09-01', '6d'],
+  ['juice', '-28', '2023-04-15', '2026-09-01', '10d'],
+  ['osirisapex', '-64', '2016-09-09', '2026-09-01', '20d'],
 ];
 
 async function fetchTraj(id, start, stop, step) {
