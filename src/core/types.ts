@@ -18,8 +18,10 @@ export interface Body {
   naifId?: number;
   parent?: string; // reference-frame parent id (nested frames, §4.4)
   gm: number; // m^3/s^2
-  radius: number; // m (equatorial)
-  flattening?: number;
+  radius: number; // m (equatorial / mean)
+  flattening?: number; // polar oblateness (r_pol = r·(1−f)), for the giants
+  triaxial?: [number, number, number]; // axis ratios vs `radius` for lumpy small moons
+
   j2?: number;
   rotation: { period: number; poleRA: number; poleDec: number; primeMeridian: number };
   ephemeris: {

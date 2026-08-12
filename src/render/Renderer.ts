@@ -798,7 +798,11 @@ export class Renderer {
       const px = state[i * 6] - fx, py = state[i * 6 + 1] - fy, pz = state[i * 6 + 2] - fz;
       b.mesh.position.set(px, py, pz);
       const r = b.def.radius * (b.def.id === 'Sun' ? Math.min(exaggeration, 30) : exaggeration);
-      b.mesh.scale.setScalar(r);
+      // Real shapes: lumpy triaxial ellipsoids (small moons), else oblate by
+      // flattening along the spin pole (local Y) — Saturn/Jupiter visibly squashed.
+      const tri = b.def.triaxial;
+      if (tri) b.mesh.scale.set(r * tri[0], r * tri[1], r * tri[2]);
+      else b.mesh.scale.set(r, r * (1 - (b.def.flattening ?? 0)), r);
       // Live axial rotation: W = W0 + 360*(t/period) deg about the pole. Negative
       // period is retrograde (Venus, Uranus). Visible once time is running fast.
       const p = b.def.rotation.period;

@@ -37,6 +37,10 @@ export const SOLAR_SYSTEM: Body[] = [
 
 // Major moons: massless (gm 0 — visual rails), Kepler-propagated about their
 // parent from the baked Horizons state (tools/bake_moons.mjs). name, parent, radius m, colour.
+// Phobos/Deimos are markedly non-spherical — triaxial axis ratios vs mean radius.
+const TRIAXIAL: Record<string, [number, number, number]> = {
+  Phobos: [1.22, 1.01, 0.82], Deimos: [1.21, 0.98, 0.89],
+};
 const MOON_META: [string, string, number, number][] = [
   ['Phobos', 'Mars', 1.1e4, 0x9a8a7a], ['Deimos', 'Mars', 6.2e3, 0x9a8a7a],
   ['Io', 'Jupiter', 1.8216e6, 0xe6d96a], ['Europa', 'Jupiter', 1.5608e6, 0xd8d2be],
@@ -50,7 +54,7 @@ const states = moonStates as unknown as Record<string, { r0: [number, number, nu
 for (const [id, parent, radius, colour] of MOON_META) {
   const s = states[id];
   if (!s) continue;
-  SOLAR_SYSTEM.push({ ...star(id, 0, radius, colour), parent, ephemeris: { source: 'kepler' }, relState: s });
+  SOLAR_SYSTEM.push({ ...star(id, 0, radius, colour), parent, ephemeris: { source: 'kepler' }, relState: s, triaxial: TRIAXIAL[id] });
 }
 
 /** Byte layout helper: 6 Float64 per body (x,y,z,vx,vy,vz), SI, ecliptic-J2000. */
