@@ -167,6 +167,9 @@ export class Renderer {
   private satGroups: { name: string; satrecs: satellite.SatRec[]; names: string[]; points: THREE.Points; visible: boolean; drawIdx: number[]; drawCount: number }[] = [];
   private pickV = new THREE.Vector3();
   private satFrame = 0;
+  private satOrbits!: THREE.LineSegments; // Earth-relative orbit tracks (ECI ecliptic)
+  private lastTdb = 0;
+  readonly domElement!: HTMLCanvasElement; // canvas, for input handlers in main
   // Vessel on rails (P3.5): heliocentric Kepler plan, offset by the Sun each frame.
   private vessel: Vessel | null = null;
   private vesselMarker!: THREE.Points;
@@ -209,6 +212,7 @@ export class Renderer {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     container.appendChild(this.renderer.domElement);
+    this.domElement = this.renderer.domElement;
 
     this.scene.background = new THREE.Color(0x05070a);
     this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1e0, 1e13);
@@ -256,6 +260,10 @@ export class Renderer {
       new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(2 * 3), 3)),
       new THREE.PointsMaterial({ color: 0xffee88, size: 11, sizeAttenuation: false, depthTest: false }));
     this.transferMarks.frustumCulled = false; this.transferMarks.visible = false; this.scene.add(this.transferMarks);
+    this.satOrbits = new THREE.LineSegments(
+      new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(60000 * 3), 3)),
+      new THREE.LineBasicMaterial({ color: 0x4a90c0, transparent: true, opacity: 0.4, depthTest: false }));
+    this.satOrbits.frustumCulled = false; this.satOrbits.visible = false; this.satOrbits.geometry.setDrawRange(0, 0); this.scene.add(this.satOrbits);
     const el = this.renderer.domElement;
     el.addEventListener('pointerdown', (e) => this.onGizmoDown(e));
     el.addEventListener('pointermove', (e) => this.onGizmoMove(e));
@@ -485,6 +493,54 @@ export class Renderer {
       (g.points.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
       g.points.geometry.setDrawRange(0, count);
     }
+  }
+
+  // Toggle satellite ground-track rings. On enable, sample each *visible* sat's
+  // orbit over one period (ECI-ecliptic, Earth-relative) into one LineSegments.
+  // Capped so a mega-constellation can't blow the buffer.
+  setSatOrbitsVisible(on: boolean): void {
+    this.satOrbits.visible = on;
+    if (on) this.computeSatOrbits();
+  }
+
+  private computeSatOrbits(): void {
+    const SEG = 48, MAX_SATS = 400; // 48 segs/orbit; ×2 verts/seg; cap total sats
+    const arr = this.satOrbits.geometry.getAttribute('position').array as Float32Array;
+    let v = 0; // vertex cursor
+    const cap = Math.floor(arr.length / 3);
+    const base = this.lastTdb;
+    for (const g of this.satGroups) {
+      if (!g.visible || g.satrecs.length > 2000) continue; // skip big constellations (starlink)
+      for (let si = 0; si < g.satrecs.length; si++) {
+        if (v / (SEG * 2) >= MAX_SATS) break;
+        const rec = g.satrecs[si];
+        const periodMin = (2 * Math.PI) / rec.no; // no = rad/min
+        let prev: number[] | null = null;
+        for (let k = 0; k <= SEG; k++) {
+          const t = tdbToDate((base + (k / SEG) * periodMin * 60) as never);
+          const pv = satellite.propagate(rec, t);
+          const pos = pv?.position;
+          if (!pos || typeof pos === 'boolean') { prev = null; continue; }
+          this.vr[0] = pos.x * 1000; this.vr[1] = pos.y * 1000; this.vr[2] = pos.z * 1000;
+          eqjToEcl(this.vr, this.vr);
+          const cur = [this.vr[0], this.vr[1], this.vr[2]];
+          if (prev && v + 2 <= cap) {
+            arr[v * 3] = prev[0]; arr[v * 3 + 1] = prev[1]; arr[v * 3 + 2] = prev[2]; v++;
+            arr[v * 3] = cur[0]; arr[v * 3 + 1] = cur[1]; arr[v * 3 + 2] = cur[2]; v++;
+          }
+          prev = cur;
+        }
+      }
+    }
+    (this.satOrbits.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
+    this.satOrbits.geometry.setDrawRange(0, v);
+  }
+
+  // Rings are stored Earth-relative (ECI ecliptic); shift them to Earth each frame.
+  private updateSatOrbits(state: Float64Array): void {
+    if (!this.satOrbits.visible || this.earthIdx < 0) return;
+    const ex = state[this.earthIdx * 6], ey = state[this.earthIdx * 6 + 1], ez = state[this.earthIdx * 6 + 2];
+    this.satOrbits.position.set(ex - this.focusAbs.x, ey - this.focusAbs.y, ez - this.focusAbs.z);
   }
 
   // Rewrite each visible mission's line offset by focus + place its epoch marker.
@@ -856,7 +912,9 @@ export class Renderer {
     }
     this.updateOrbits(state);
     this.updateSoi(state);
+    this.lastTdb = tdb;
     this.updateSatellites(state, tdb);
+    this.updateSatOrbits(state);
     this.updateMissions(tdb);
     this.updateVessel(tdb);
     this.updateTransfer();

@@ -67,30 +67,44 @@ const focusOpts = SOLAR_SYSTEM.map((b, i) => {
 }).join('');
 
 hud.innerHTML = `
-  <div class="row"><span class="badge" id="backend">…</span><span class="badge" id="fps">-- FPS</span></div>
-  <label>FOCUS <select id="focus">${focusOpts}</select></label>
-  <label>FRAME <select id="frame"><option value="-1">INERTIAL</option>${SOLAR_SYSTEM.map((b, i) => (i > 0 && !b.parent ? `<option value="${i}">⟳ ${b.id.toUpperCase()}</option>` : '')).join('')}</select></label>
-  <label>DATE <input type="datetime-local" id="date" step="1"></label>
-  <label>WARP <input type="range" id="rate" min="0" max="8" step="0.05"></label>
-  <div class="row"><button id="playpause">⏸ PAUSE</button><span id="ratelabel">×1</span><button id="now">NOW</button></div>
-  <label>SCALE <input type="range" id="scale" min="0" max="4" step="0.01"></label>
-  <label class="row"><span>TRUE SCALE</span><input type="checkbox" id="truescale"></label>
-  <label class="row"><span>FLY (WASD+drag)</span><input type="checkbox" id="fly"></label>
-  <label class="row"><span>INSERT (click+drag)</span><input type="checkbox" id="insert"></label>
-  <div class="row"><button id="ghost">GHOST FOCUS</button><button id="clearp">CLEAR PARTICLES</button></div>
-  <label class="row"><span>PERTURB ALL (N-body)</span><input type="checkbox" id="perturb"></label>
-  <div class="row"><button id="porkchop">PORKCHOP → MARS</button></div>
-  <div class="row"><button id="vessel">+ VESSEL (from Earth)</button></div>
-  <div class="row"><button id="transfer">TRANSFER PLANNER</button></div>
-  <div class="row"><button id="dvladder">Δv LADDER</button></div>
-  <details style="margin:2px 0"><summary style="cursor:pointer;user-select:none">MISSIONS &amp; PROBES</summary><div id="missions" style="padding-left:6px;margin-top:2px"></div></details>
-  <label class="row"><span>ASTEROIDS (100k)</span><input type="checkbox" id="asteroids"></label>
-  <label class="row"><span>↳ COUNT</span><input type="range" id="astcount" min="2000" max="100000" step="2000" value="100000" style="width:120px"></label>
-  <label class="row"><span>SATELLITES (SGP4)</span><input type="checkbox" id="sats"></label>
-  <label class="row"><span>STARLINK (~11k)</span><input type="checkbox" id="starlink"></label>
-  <label class="row"><span>SPHERES OF INFLUENCE</span><input type="checkbox" id="soi"></label>
-  <label class="row"><span>DEBUG</span><input type="checkbox" id="debug"></label>
-  <div class="mono" id="readout"></div>
+  <div class="title"><b>SOLARSIM</b><span class="badges"><span class="badge" id="backend">…</span><span class="badge" id="fps">-- FPS</span></span></div>
+
+  <details class="sec" open><summary>TIME</summary><div class="body">
+    <label>DATE <input type="datetime-local" id="date" step="1"></label>
+    <label>WARP <input type="range" id="rate" min="0" max="8" step="0.05"></label>
+    <div class="row"><button id="playpause">⏸ PAUSE</button><span id="ratelabel">×1</span><button id="now">NOW</button></div>
+  </div></details>
+
+  <details class="sec" open><summary>VIEW</summary><div class="body">
+    <label>FOCUS <select id="focus">${focusOpts}</select></label>
+    <label>FRAME <select id="frame"><option value="-1">INERTIAL</option>${SOLAR_SYSTEM.map((b, i) => (i > 0 && !b.parent ? `<option value="${i}">⟳ ${b.id.toUpperCase()}</option>` : '')).join('')}</select></label>
+    <label>SCALE <input type="range" id="scale" min="0" max="4" step="0.01"></label>
+    <label class="row"><span>TRUE SCALE</span><input type="checkbox" id="truescale"></label>
+    <label class="row"><span>FLY · WASD+DRAG</span><input type="checkbox" id="fly"></label>
+  </div></details>
+
+  <details class="sec"><summary>LAYERS</summary><div class="body">
+    <label class="row"><span>ASTEROIDS · 100K</span><input type="checkbox" id="asteroids"></label>
+    <label class="row"><span class="sub">↳ COUNT</span><input type="range" id="astcount" min="2000" max="100000" step="2000" value="100000" style="width:120px"></label>
+    <label class="row"><span>SATELLITES · SGP4</span><input type="checkbox" id="sats"></label>
+    <label class="row"><span>STARLINK · ~11K</span><input type="checkbox" id="starlink"></label>
+    <label class="row"><span class="sub">↳ ORBIT TRACKS</span><input type="checkbox" id="satorbits"></label>
+    <label class="row"><span>SPHERES OF INFLUENCE</span><input type="checkbox" id="soi"></label>
+    <details class="sec"><summary>MISSIONS &amp; PROBES</summary><div class="body" id="missions"></div></details>
+  </div></details>
+
+  <details class="sec"><summary>TOOLS</summary><div class="body">
+    <label class="row"><span>INSERT · CLICK+DRAG</span><input type="checkbox" id="insert"></label>
+    <div class="row"><button id="ghost">GHOST</button><button id="clearp">CLEAR</button></div>
+    <label class="row"><span>PERTURB ALL · N-BODY</span><input type="checkbox" id="perturb"></label>
+    <div class="row"><button id="porkchop">PORKCHOP</button><button id="transfer">TRANSFER</button></div>
+    <div class="row"><button id="vessel">+ VESSEL</button><button id="dvladder">Δv LADDER</button></div>
+  </div></details>
+
+  <details class="sec"><summary>DEBUG</summary><div class="body">
+    <label class="row"><span>OVERLAY</span><input type="checkbox" id="debug"></label>
+    <div class="mono" id="readout"></div>
+  </div></details>
 `;
 app.appendChild(hud);
 
@@ -197,15 +211,31 @@ const satChk = $<HTMLInputElement>('#sats');
 satChk.addEventListener('change', () => renderer.setSatGroupVisible('mixed', satChk.checked));
 const starlinkChk = $<HTMLInputElement>('#starlink');
 starlinkChk.addEventListener('change', () => renderer.setSatGroupVisible('starlink', starlinkChk.checked));
+const satOrbChk = $<HTMLInputElement>('#satorbits');
+satOrbChk.addEventListener('change', () => renderer.setSatOrbitsVisible(satOrbChk.checked));
 
 // Hover tooltip: name the satellite nearest the cursor (across visible groups).
+// Click opens Wikipedia — Special:Search resolves to the article if one exists,
+// else lands on results (so obscure debris just searches, notable sats jump straight in).
 const satTip = document.createElement('div');
 satTip.style.cssText = 'position:fixed;pointer-events:none;background:rgba(10,14,20,0.92);border:1px solid #2a3442;color:#cfe;font:10px ui-monospace,monospace;padding:2px 7px;border-radius:3px;display:none;z-index:20';
 app.appendChild(satTip);
+let hoverSat: string | null = null;
 window.addEventListener('mousemove', (e) => {
+  hoverSat = renderer.pickSatellite(e.clientX, e.clientY);
+  if (hoverSat) {
+    satTip.innerHTML = `${hoverSat}<span style="color:#7a8">  ↗ wiki</span>`;
+    satTip.style.left = `${e.clientX + 13}px`; satTip.style.top = `${e.clientY + 10}px`; satTip.style.display = 'block';
+    renderer.domElement.style.cursor = 'pointer';
+  } else { satTip.style.display = 'none'; renderer.domElement.style.cursor = ''; }
+});
+// Distinguish a click from an orbit drag: only open wiki if the pointer barely moved.
+let downX = 0, downY = 0;
+renderer.domElement.addEventListener('pointerdown', (e) => { downX = e.clientX; downY = e.clientY; });
+renderer.domElement.addEventListener('click', (e) => {
+  if (Math.hypot(e.clientX - downX, e.clientY - downY) > 5) return; // was a drag
   const n = renderer.pickSatellite(e.clientX, e.clientY);
-  if (n) { satTip.textContent = n; satTip.style.left = `${e.clientX + 13}px`; satTip.style.top = `${e.clientY + 10}px`; satTip.style.display = 'block'; }
-  else satTip.style.display = 'none';
+  if (n) window.open(`https://en.wikipedia.org/wiki/Special:Search?search=${encodeURIComponent(n.replace(/\s+/g, ' ').trim())}`, '_blank', 'noopener');
 });
 
 const soiChk = $<HTMLInputElement>('#soi');
