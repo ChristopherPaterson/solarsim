@@ -35,6 +35,17 @@
       "notes": "P3.5. Baked by tools/bake_missions.mjs from Horizons VECTORS (barycentric ecliptic-J2000, [tdb_s,x,y,z] m). One polyline per craft, rendered with an epoch marker."
     },
     {
+      "id": "asteroids-mpcorb",
+      "kind": "elements",
+      "file": "public/data/asteroids.bin",
+      "source": "IAU Minor Planet Center — MPCORB",
+      "url": "https://www.minorplanetcenter.net/iau/MPCORB.html",
+      "licence": "MPC / CBAT terms (freely available)",
+      "attribution": "IAU Minor Planet Center — asteroid orbital elements",
+      "retrieved": "2026-08-12",
+      "notes": "P4. 100k brightest asteroids (a,e,i,Ω,ω,M0,epoch) baked by tools/bake_asteroids.mjs, sorted by H. Kepler solved on the GPU (TSL vertex shader), one draw call. ~97k main belt + 1.2k Jupiter Trojans."
+    },
+    {
       "id": "tle-snapshot",
       "kind": "elements",
       "file": "public/data/tles.txt + public/data/starlink.txt",

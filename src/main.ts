@@ -44,6 +44,7 @@ const MISSIONS: [string, string, number, boolean][] = [
 for (const [name, , color, on] of MISSIONS) {
   renderer.loadMission(name, `data/missions/${name}.bin`, color).then(() => renderer.setMissionVisible(name, on)).catch((e) => console.warn(name, e));
 }
+renderer.loadAsteroids('data/asteroids.bin').catch((e) => console.warn('asteroids:', e));
 renderer.loadSatelliteGroup('mixed', 'data/tles.txt', 0x8fe9ff, 3).catch((e) => console.warn('tles:', e));
 renderer.loadSatelliteGroup('starlink', 'data/starlink.txt', 0xbfe0ff, 2).catch((e) => console.warn('starlink:', e));
 
@@ -70,6 +71,8 @@ hud.innerHTML = `
   <div class="row"><button id="transfer">TRANSFER PLANNER</button></div>
   <div class="row"><button id="dvladder">Δv LADDER</button></div>
   <details style="margin:2px 0"><summary style="cursor:pointer;user-select:none">MISSIONS &amp; PROBES</summary><div id="missions" style="padding-left:6px;margin-top:2px"></div></details>
+  <label class="row"><span>ASTEROIDS (100k)</span><input type="checkbox" id="asteroids"></label>
+  <label class="row"><span>↳ COUNT</span><input type="range" id="astcount" min="2000" max="100000" step="2000" value="100000" style="width:120px"></label>
   <label class="row"><span>SATELLITES (SGP4)</span><input type="checkbox" id="sats"></label>
   <label class="row"><span>STARLINK (~11k)</span><input type="checkbox" id="starlink"></label>
   <label class="row"><span>SPHERES OF INFLUENCE</span><input type="checkbox" id="soi"></label>
@@ -168,6 +171,10 @@ missionsBox.innerHTML = MISSIONS.map(([name, label, color, on]) =>
   `<label class="row" style="font-size:10px"><span style="color:#${color.toString(16).padStart(6, '0')}">${label}</span><input type="checkbox" data-m="${name}" ${on ? 'checked' : ''}></label>`).join('');
 missionsBox.querySelectorAll<HTMLInputElement>('input[data-m]').forEach((chk) =>
   chk.addEventListener('change', () => renderer.setMissionVisible(chk.dataset.m!, chk.checked)));
+const astChk = $<HTMLInputElement>('#asteroids');
+astChk.addEventListener('change', () => renderer.setAsteroidsVisible(astChk.checked));
+$<HTMLInputElement>('#astcount').addEventListener('input', (e) => renderer.setAsteroidCount(+(e.target as HTMLInputElement).value));
+
 const satChk = $<HTMLInputElement>('#sats');
 satChk.addEventListener('change', () => renderer.setSatGroupVisible('mixed', satChk.checked));
 const starlinkChk = $<HTMLInputElement>('#starlink');

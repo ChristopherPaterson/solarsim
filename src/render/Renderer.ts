@@ -30,6 +30,7 @@ import { IAS15 } from '../core/integrate/ias15';
 import { Vessel, rtnBasis } from '../core/spacecraft/vessel';
 import { tdbToDate } from '../core/time';
 import { StarField } from './StarField';
+import { AsteroidField } from './AsteroidField';
 
 const GM_SUN = 1.32712440018e20;
 const V_DRAG_SCALE = 3e-7; // world-metres of drag -> m/s of insert velocity
@@ -178,6 +179,7 @@ export class Renderer {
   private sunDirNode: { value: THREE.Vector3 } | null = null;
   showOrbits = true;
   starField: StarField | null = null;
+  private asteroids: AsteroidField | null = null;
   isWebGPU = false;
 
   constructor(container: HTMLElement) {
@@ -648,6 +650,15 @@ export class Renderer {
     this.scene.add(this.starField.points);
   }
 
+  /** Load the baked asteroid elements as a GPU-propagated point field (P4). */
+  async loadAsteroids(url: string): Promise<void> {
+    this.asteroids = new AsteroidField(await (await fetch(url)).arrayBuffer());
+    this.scene.add(this.asteroids.points);
+  }
+  setAsteroidsVisible(on: boolean): void { this.asteroids?.setVisible(on); }
+  setAsteroidCount(n: number): void { this.asteroids?.setDrawCount(n); }
+  asteroidCount(): number { return this.asteroids?.count ?? 0; }
+
   setBodies(defs: Body[]): void {
     defs.forEach((def, i) => {
       const isStar = def.id === 'Sun';
@@ -798,6 +809,10 @@ export class Renderer {
       // rotation about the pole, so it composes with Earth's own spin (parent).
       this.spin.setFromAxisAngle(Y_AXIS, (tdb / 691200) * Math.PI * 2);
       this.earthClouds.quaternion.copy(this.spin);
+    }
+    if (this.asteroids) {
+      this.asteroids.uTime.value = tdb;
+      (this.asteroids.uSunOffset.value as THREE.Vector3).set(this.sunAbs.x - this.focusAbs.x, this.sunAbs.y - this.focusAbs.y, this.sunAbs.z - this.focusAbs.z);
     }
     this.updateOrbits(state);
     this.updateSoi(state);
