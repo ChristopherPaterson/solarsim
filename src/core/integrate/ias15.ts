@@ -60,6 +60,9 @@ export class IAS15 {
     this.csv = new Float64Array(this.n3);
   }
 
+  /** Clear the compensated-summation state (call before reusing for a fresh run). */
+  reset(): void { this.csx.fill(0); this.csv.fill(0); }
+
   /** One Gauss-Radau step of size dt from time t. Returns the b6/a0 error ratio
    *  used to size the next step. Cold-starts b each step (robust; a few extra
    *  predictor-corrector sweeps) and iterates until b6 converges. */

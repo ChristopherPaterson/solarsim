@@ -45,7 +45,8 @@ hud.innerHTML = `
   <label>SCALE <input type="range" id="scale" min="0" max="4" step="0.01"></label>
   <label class="row"><span>TRUE SCALE</span><input type="checkbox" id="truescale"></label>
   <label class="row"><span>FLY (WASD+drag)</span><input type="checkbox" id="fly"></label>
-  <div class="row"><button id="drop">+ TEST BODY</button><button id="clearp">CLEAR</button></div>
+  <label class="row"><span>INSERT (click+drag)</span><input type="checkbox" id="insert"></label>
+  <div class="row"><button id="clearp">CLEAR PARTICLES</button></div>
   <label class="row"><span>DEBUG</span><input type="checkbox" id="debug"></label>
   <div class="mono" id="readout"></div>
 `;
@@ -98,20 +99,20 @@ trueScale.addEventListener('change', () => {
 });
 focusSel.addEventListener('change', () => { focusIdx = parseInt(focusSel.value); persist(); });
 
-// Temporary P3 insert: drop a test particle onto a clean heliocentric ellipse
-// at ~1.3 AU (Sun-relative, mildly eccentric) so it's always visibly orbiting.
-// (Click-to-place insert UI is the next slice.)
-$<HTMLButtonElement>('#drop').addEventListener('click', () => {
-  const sx = state[0], sy = state[1], sz = state[2]; // Sun barycentric pos
-  const svx = state[3], svy = state[4], svz = state[5];
-  const r = 1.3 * 1.495978707e11;
-  const vc = Math.sqrt(1.32712440018e20 / r); // circular speed at r
-  sim.addParticle([sx + r, sy, sz], [svx, svy + vc * 1.05, svz]); // 1.05 -> slight ecc
+// P3 insert: click the ecliptic to place a body, drag to set its velocity (a
+// live two-body preview ellipse shows the orbit), release to commit to the sim.
+const insertChk = $<HTMLInputElement>('#insert');
+const flyChk = $<HTMLInputElement>('#fly');
+insertChk.addEventListener('change', () => {
+  if (insertChk.checked && flyChk.checked) { flyChk.checked = false; renderer.setFlyMode(false); }
+  renderer.setInsertMode(insertChk.checked, (x, v) => sim.addParticle(x, v));
 });
 $<HTMLButtonElement>('#clearp').addEventListener('click', () => sim.clearParticles());
 
-const flyChk = $<HTMLInputElement>('#fly');
-flyChk.addEventListener('change', () => renderer.setFlyMode(flyChk.checked));
+flyChk.addEventListener('change', () => {
+  if (flyChk.checked && insertChk.checked) { insertChk.checked = false; renderer.setInsertMode(false); }
+  renderer.setFlyMode(flyChk.checked);
+});
 // 'F' toggles free-flight too (ignored while typing in the date field).
 window.addEventListener('keydown', (e) => {
   if (e.key === 'f' && document.activeElement?.tagName !== 'INPUT') {

@@ -25,7 +25,12 @@ import { FlyControls } from 'three/addons/controls/FlyControls.js';
 import type { Body } from '../core/types';
 import { sampleOrbitPathRV } from '../core/orbital/elements';
 import { eqjToEcl } from '../core/frames';
+import { IAS15 } from '../core/integrate/ias15';
 import { StarField } from './StarField';
+
+const GM_SUN = 1.32712440018e20;
+const V_DRAG_SCALE = 3e-7; // world-metres of drag -> m/s of insert velocity
+export type InsertCommit = (x: [number, number, number], v: [number, number, number]) => void;
 
 const ORBIT_SEGMENTS = 256;
 const RING_SEGMENTS = 256;
@@ -124,6 +129,19 @@ export class Renderer {
   private particlePoints!: THREE.Points;
   private trails: { line: THREE.Line; abs: Float64Array; head: number; len: number }[] = [];
   private prevParticleCount = 0;
+  // Interactive insert (P3): click to place on the ecliptic, drag to set velocity,
+  // a two-body preview ellipse updates live, release commits to the worker.
+  private focusAbs = new THREE.Vector3(); // absolute ecliptic focus offset (m)
+  private sunAbs = new THREE.Vector3();
+  private previewLine!: THREE.Line;
+  private previewIas!: IAS15;
+  private inserting = false;
+  private insertOnCommit: InsertCommit | null = null;
+  private ray = new THREE.Raycaster();
+  private ndc = new THREE.Vector2();
+  private placeAbs = new THREE.Vector3(); // placement point (absolute)
+  private insVel: [number, number, number] = [0, 0, 0];
+  private dragging = false;
   // TSL uniform handle (Earth->Sun dir, scene frame). `any`: TSL node types are
   // too loose to thread through dot()/emissiveNode without friction.
   private sunDirNode: { value: THREE.Vector3 } | null = null;
@@ -160,7 +178,96 @@ export class Renderer {
     this.scene.add(new THREE.AmbientLight(0x222233, 1.2));
 
     this.setupParticles();
+    this.setupInsert();
     window.addEventListener('resize', () => this.onResize());
+  }
+
+  private setupInsert(): void {
+    // Two-body (Sun-only) preview integrator — fast analytic-quality ellipse.
+    this.previewIas = new IAS15(1, (_t, x, a) => {
+      const dx = this.sunAbs.x - x[0], dy = this.sunAbs.y - x[1], dz = this.sunAbs.z - x[2];
+      const r2 = dx * dx + dy * dy + dz * dz, inv = GM_SUN / (r2 * Math.sqrt(r2));
+      a[0] = inv * dx; a[1] = inv * dy; a[2] = inv * dz;
+    });
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(300 * 3), 3));
+    g.setDrawRange(0, 0);
+    this.previewLine = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xffcc44, transparent: true, opacity: 0.9 }));
+    this.previewLine.frustumCulled = false; this.previewLine.visible = false;
+    this.scene.add(this.previewLine);
+    const el = this.renderer.domElement;
+    el.addEventListener('pointerdown', (e) => this.onInsertDown(e));
+    el.addEventListener('pointermove', (e) => this.onInsertMove(e));
+    window.addEventListener('pointerup', () => this.onInsertUp());
+  }
+
+  /** Enable click-to-place insert (disables orbit controls while active). */
+  setInsertMode(on: boolean, onCommit?: InsertCommit): void {
+    this.inserting = on;
+    this.insertOnCommit = onCommit ?? null;
+    this.controls.enabled = !on;
+    if (!on) { this.dragging = false; this.previewLine.visible = false; }
+  }
+
+  private eclipticHit(e: PointerEvent, out: THREE.Vector3): boolean {
+    const r = this.renderer.domElement.getBoundingClientRect();
+    this.ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    this.ray.setFromCamera(this.ndc, this.camera);
+    // True ecliptic plane (abs z=0) sits at scene z = -focusAbs.z.
+    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), this.focusAbs.z);
+    return this.ray.ray.intersectPlane(plane, out) !== null;
+  }
+
+  private onInsertDown(e: PointerEvent): void {
+    if (!this.inserting) return;
+    const hit = new THREE.Vector3();
+    if (!this.eclipticHit(e, hit)) return;
+    this.placeAbs.copy(hit).add(this.focusAbs); // scene -> absolute
+    this.dragging = true;
+    this.updatePreview(0, 0, 0);
+  }
+
+  private onInsertMove(e: PointerEvent): void {
+    if (!this.inserting || !this.dragging) return;
+    const hit = new THREE.Vector3();
+    if (!this.eclipticHit(e, hit)) return;
+    hit.add(this.focusAbs); // absolute drag point
+    this.updatePreview(
+      (hit.x - this.placeAbs.x) * V_DRAG_SCALE,
+      (hit.y - this.placeAbs.y) * V_DRAG_SCALE,
+      (hit.z - this.placeAbs.z) * V_DRAG_SCALE,
+    );
+  }
+
+  private onInsertUp(): void {
+    if (!this.inserting || !this.dragging) return;
+    this.dragging = false;
+    this.previewLine.visible = false;
+    this.insertOnCommit?.([this.placeAbs.x, this.placeAbs.y, this.placeAbs.z], this.insVel);
+  }
+
+  /** Integrate a two-body preview for the candidate state and draw the ellipse. */
+  private updatePreview(vx: number, vy: number, vz: number): void {
+    this.insVel = [vx, vy, vz];
+    const P = this.previewIas; P.reset();
+    P.x[0] = this.placeAbs.x; P.x[1] = this.placeAbs.y; P.x[2] = this.placeAbs.z;
+    P.v[0] = vx; P.v[1] = vy; P.v[2] = vz;
+    const rx = this.placeAbs.x - this.sunAbs.x, ry = this.placeAbs.y - this.sunAbs.y, rz = this.placeAbs.z - this.sunAbs.z;
+    const r = Math.hypot(rx, ry, rz), v2 = vx * vx + vy * vy + vz * vz;
+    const eps = v2 / 2 - GM_SUN / r; // specific orbital energy (Sun-relative)
+    const span = eps < 0
+      ? 1.15 * 2 * Math.PI * Math.sqrt(Math.pow(-GM_SUN / (2 * eps), 3) / GM_SUN) // ~1.15 periods
+      : 3 * r / Math.max(Math.sqrt(v2), 500); // unbound: a few radii of travel
+    const STEPS = 300, dt = span / STEPS;
+    const arr = this.previewLine.geometry.getAttribute('position').array as Float32Array;
+    let t = 0;
+    for (let k = 0; k < STEPS; k++) {
+      arr[k * 3] = P.x[0] - this.focusAbs.x; arr[k * 3 + 1] = P.x[1] - this.focusAbs.y; arr[k * 3 + 2] = P.x[2] - this.focusAbs.z;
+      P.step(t, dt); t += dt;
+    }
+    (this.previewLine.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
+    this.previewLine.geometry.setDrawRange(0, STEPS);
+    this.previewLine.visible = true;
   }
 
   private setupParticles(): void {
@@ -328,6 +435,8 @@ export class Renderer {
    */
   update(state: Float64Array, focusIdx: number, exaggeration: number, tdb: number): void {
     const fx = state[focusIdx * 6], fy = state[focusIdx * 6 + 1], fz = state[focusIdx * 6 + 2];
+    this.focusAbs.set(fx, fy, fz);
+    this.sunAbs.set(state[this.sunIdx * 6], state[this.sunIdx * 6 + 1], state[this.sunIdx * 6 + 2]);
     for (let i = 0; i < this.bodies.length; i++) {
       const b = this.bodies[i];
       const px = state[i * 6] - fx, py = state[i * 6 + 1] - fy, pz = state[i * 6 + 2] - fz;
