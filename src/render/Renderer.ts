@@ -23,6 +23,7 @@ import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { FlyControls } from 'three/addons/controls/FlyControls.js';
 import type { Body } from '../core/types';
+import { PLACES, placeDir } from '../data/places';
 import { sampleOrbitPathRV } from '../core/orbital/elements';
 import { eqjToEcl } from '../core/frames';
 import * as satellite from 'satellite.js';
@@ -200,6 +201,9 @@ export class Renderer {
   private labelBox!: HTMLDivElement; // DOM overlay for body name labels
   private labels: { b: RenderBody; el: HTMLDivElement }[] = [];
   private labelsOn = false;
+  private cityBox!: HTMLDivElement; // DOM overlay for Earth surface labels (cities + launch sites)
+  private cities: { name: string; dir: THREE.Vector3; launch: boolean; el: HTMLDivElement }[] = [];
+  private cityScratch = new THREE.Vector3(); private cityNormal = new THREE.Vector3();
   private lp = new THREE.Vector3(); // scratch for label projection
   // Vessel on rails (P3.5): heliocentric Kepler plan, offset by the Sun each frame.
   private vessel: Vessel | null = null;
@@ -247,6 +251,17 @@ export class Renderer {
     this.labelBox = document.createElement('div');
     this.labelBox.className = 'label-layer';
     container.appendChild(this.labelBox);
+    this.cityBox = document.createElement('div');
+    this.cityBox.className = 'label-layer';
+    container.appendChild(this.cityBox);
+    for (const pl of PLACES) {
+      const el = document.createElement('div');
+      el.className = pl.launch ? 'place-label launch' : 'place-label';
+      el.innerHTML = `<i></i>${pl.name}`; el.style.display = 'none';
+      this.cityBox.appendChild(el);
+      const [x, y, z] = placeDir(pl.lat, pl.lon);
+      this.cities.push({ name: pl.name, dir: new THREE.Vector3(x, y, z), launch: !!pl.launch, el });
+    }
 
     this.scene.background = new THREE.Color(0x05070a);
     this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1e0, 1e13);
@@ -1064,6 +1079,35 @@ export class Renderer {
     }
   }
 
+  // Earth surface labels (cities + launch sites): shown only when zoomed close to
+  // Earth. Each sits on the globe, rotates with it, and is hidden on the far side.
+  private updateCities(): void {
+    const eb = this.earthIdx >= 0 ? this.bodies[this.earthIdx] : null;
+    const R = eb ? eb.mesh.scale.x : 0;
+    const center = eb ? eb.mesh.position : null;
+    // Gate: labels on, Earth present, and camera within ~15 Earth radii (close zoom;
+    // focusing Earth lands at 10R, so they appear on arrival and as you close in).
+    const show = this.labelsOn && !!eb && this.camera.position.distanceTo(center!) < R * 15;
+    if (!show) { for (const c of this.cities) c.el.style.display = 'none'; return; }
+    const el0 = this.renderer.domElement, W = el0.clientWidth, H = el0.clientHeight;
+    const camFromCenter = this.cityScratch.copy(this.camera.position).sub(center!); // camera relative to Earth centre
+    const placed: { l: number; t: number; r: number; b: number }[] = [];
+    for (const c of this.cities) {
+      this.cityNormal.copy(c.dir).applyQuaternion(eb!.mesh.quaternion); // outward normal (world)
+      // Visible only if the camera is above this point's horizon plane.
+      if (camFromCenter.dot(this.cityNormal) <= R) { c.el.style.display = 'none'; continue; }
+      this.lp.copy(this.cityNormal).multiplyScalar(R).add(center!); // surface point (world)
+      this.lp.project(this.camera);
+      if (this.lp.z >= 1) { c.el.style.display = 'none'; continue; }
+      const x = (this.lp.x * 0.5 + 0.5) * W, y = (-this.lp.y * 0.5 + 0.5) * H;
+      // Greedy de-clutter so dense clusters (Tokyo/Osaka) don't overprint.
+      const w = c.el.offsetWidth || 60, rect = { l: x, t: y - 7, r: x + w + 6, b: y + 7 };
+      if (placed.some((p) => !(rect.r < p.l || rect.l > p.r || rect.b < p.t || rect.t > p.b))) { c.el.style.display = 'none'; continue; }
+      placed.push(rect);
+      c.el.style.display = 'block'; c.el.style.left = `${x}px`; c.el.style.top = `${y}px`;
+    }
+  }
+
   // Position + size each planet's SOI sphere (true scale) from live positions.
   private updateSoi(state: Float64Array): void {
     if (!this.soiVisible) return;
@@ -1216,6 +1260,7 @@ export class Renderer {
     if (this.post) this.post.render();
     else this.renderer.render(this.scene, this.camera);
     this.updateLabels();
+    this.updateCities();
   }
 
   /** Distance from camera to the focus (origin), in metres. For the HUD. */

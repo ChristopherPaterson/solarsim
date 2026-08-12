@@ -89,6 +89,16 @@ canvas { display: block; }
 }
 .body-label::before { content: '· '; color: var(--cyan); }
 
+/* Earth surface labels: cities (cyan dot) + launch sites (amber triangle). */
+.place-label {
+  position: absolute; transform: translate(6px, -50%);
+  color: #cfe1ee; font: 9px/1 ui-monospace, monospace; letter-spacing: 0.06em;
+  text-shadow: 0 0 5px rgba(0, 0, 0, 0.95), 0 0 2px rgba(0, 0, 0, 1); white-space: nowrap;
+}
+.place-label i { display: inline-block; width: 4px; height: 4px; margin: 0 4px 1px -4px; border-radius: 50%; background: var(--cyan); vertical-align: middle; }
+.place-label.launch { color: var(--amber); }
+.place-label.launch i { border-radius: 0; background: var(--amber); transform: rotate(45deg); }
+
 /* ---- Tactical scope (top-down ecliptic radar) ------------------------------ */
 .tactical { position: fixed; top: 12px; right: 12px; width: 232px; height: 232px; z-index: 8; }
 
