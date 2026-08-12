@@ -7,6 +7,7 @@ import { createPorkchopPanel } from './ui/porkchop';
 import { createVesselPanel } from './ui/vessel';
 import { createTransferPanel } from './ui/transfer';
 import { createDvLadderPanel } from './ui/dvladder';
+import { createTactical } from './ui/tactical';
 import './style.css';
 
 const app = document.getElementById('app')!;
@@ -104,6 +105,8 @@ hud.innerHTML = `
     <label>FRAME <select id="frame"><option value="-1">INERTIAL</option>${SOLAR_SYSTEM.map((b, i) => (i > 0 && !b.parent ? `<option value="${i}">⟳ ${b.id.toUpperCase()}</option>` : '')).join('')}</select></label>
     <label>SCALE <input type="range" id="scale" min="0" max="4" step="0.01"></label>
     <label class="row"><span>TRUE SCALE</span><input type="checkbox" id="truescale"></label>
+    <label class="row"><span>LABELS</span><input type="checkbox" id="labels" checked></label>
+    <label class="row"><span>TACTICAL</span><input type="checkbox" id="tactical" checked></label>
     <label class="row"><span>FLY · WASD+DRAG</span><input type="checkbox" id="fly"></label>
   </div></details>
 
@@ -323,6 +326,15 @@ const soiChk = $<HTMLInputElement>('#soi');
 soiChk.addEventListener('change', () => renderer.setSoiVisible(soiChk.checked));
 
 const sunIdx = bodyIds.indexOf('Sun'), earthIdx = bodyIds.indexOf('Earth');
+
+// Body labels + tactical scope (both default on).
+const labelsChk = $<HTMLInputElement>('#labels');
+labelsChk.addEventListener('change', () => renderer.setLabelsVisible(labelsChk.checked));
+renderer.setLabelsVisible(labelsChk.checked);
+const tactical = createTactical(app, () => ({ state, bodyIds, focusIdx, sunIdx }));
+const tacticalChk = $<HTMLInputElement>('#tactical');
+tacticalChk.addEventListener('change', () => tactical.setVisible(tacticalChk.checked));
+
 const addVessel = createVesselPanel(renderer, app, () => ({ state, sunIdx, earthIdx, tdb: curTdb }));
 $<HTMLButtonElement>('#vessel').addEventListener('click', addVessel);
 
@@ -426,6 +438,7 @@ renderer.renderer.setAnimationLoop(() => {
   renderer.update(state, focusIdx, exagg, curTdb);
   renderer.updateParticles(sim.particlePositions(), state[focusIdx * 6], state[focusIdx * 6 + 1], state[focusIdx * 6 + 2]);
   renderer.render();
+  tactical.draw();
 
   // HUD readouts (throttled).
   const now = performance.now();

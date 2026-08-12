@@ -174,6 +174,10 @@ export class Renderer {
   private orbitHi: string | null = null; // currently highlighted ring key
   private lastTdb = 0;
   readonly domElement!: HTMLCanvasElement; // canvas, for input handlers in main
+  private labelBox!: HTMLDivElement; // DOM overlay for body name labels
+  private labels: { b: RenderBody; el: HTMLDivElement }[] = [];
+  private labelsOn = false;
+  private lp = new THREE.Vector3(); // scratch for label projection
   // Vessel on rails (P3.5): heliocentric Kepler plan, offset by the Sun each frame.
   private vessel: Vessel | null = null;
   private vesselMarker!: THREE.Points;
@@ -217,6 +221,9 @@ export class Renderer {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     container.appendChild(this.renderer.domElement);
     this.domElement = this.renderer.domElement;
+    this.labelBox = document.createElement('div');
+    this.labelBox.className = 'label-layer';
+    container.appendChild(this.labelBox);
 
     this.scene.background = new THREE.Color(0x05070a);
     this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1e0, 1e13);
@@ -870,7 +877,12 @@ export class Renderer {
         ring.frustumCulled = false;
         mesh.add(ring); // parent tilt (poleQuat) lays the ring in the equatorial plane
       }
-      this.bodies.push({ def, mesh, pole });
+      const rb: RenderBody = { def, mesh, pole };
+      this.bodies.push(rb);
+      const el = document.createElement('div');
+      el.className = 'body-label'; el.textContent = def.id.toUpperCase(); el.style.display = 'none';
+      this.labelBox.appendChild(el);
+      this.labels.push({ b: rb, el });
     });
     const idOf = (id: string) => defs.findIndex((d) => d.id === id);
     // Orbit paths: planets about the Sun, satellites about their parent body.
@@ -901,6 +913,48 @@ export class Renderer {
   }
 
   setSoiVisible(on: boolean): void { this.soiVisible = on; for (const s of this.soi) s.mesh.visible = on; }
+
+  setLabelsVisible(on: boolean): void { this.labelsOn = on; if (!on) for (const l of this.labels) l.el.style.display = 'none'; }
+
+  // Project each body to screen and place its label, hiding ones that are behind
+  // the camera, occluded by a nearer body's disc, or would overlap a higher-
+  // priority label (planets/Sun beat moons; bigger on-screen beats smaller).
+  private updateLabels(): void {
+    if (!this.labelsOn) return;
+    const el0 = this.renderer.domElement;
+    const W = el0.clientWidth, H = el0.clientHeight;
+    const camPos = this.camera.position;
+    const focalPx = H / (2 * Math.tan((this.camera.fov * Math.PI) / 180 / 2));
+    const cand: { el: HTMLDivElement; x: number; y: number; d: number; rpx: number; rank: number; hidden?: boolean }[] = [];
+    for (const { b, el } of this.labels) {
+      b.mesh.getWorldPosition(this.lp);
+      const d = camPos.distanceTo(this.lp);
+      this.lp.project(this.camera);
+      if (this.lp.z >= 1) { el.style.display = 'none'; continue; }
+      const x = (this.lp.x * 0.5 + 0.5) * W, y = (-this.lp.y * 0.5 + 0.5) * H;
+      if (x < -60 || x > W + 60 || y < -30 || y > H + 30) { el.style.display = 'none'; continue; }
+      const rpx = (b.mesh.scale.x / d) * focalPx;
+      const rank = b.def.id === 'Sun' ? 0 : b.def.parent ? 2 : 1;
+      cand.push({ el, x, y, d, rpx, rank });
+    }
+    // Occlusion: hide a body whose dot sits inside a nearer body's disc.
+    for (const c of cand)
+      for (const o of cand)
+        if (o !== c && o.d < c.d - 1 && Math.hypot(o.x - c.x, o.y - c.y) < o.rpx * 0.9) { c.hidden = true; break; }
+    // Collision: greedy, most-important first.
+    cand.sort((a, b) => a.rank - b.rank || b.rpx - a.rpx);
+    const placed: { l: number; t: number; r: number; b: number }[] = [];
+    for (const c of cand) {
+      if (c.hidden) { c.el.style.display = 'none'; continue; }
+      const off = Math.min(Math.max(c.rpx, 3), 40) + 5;
+      const lx = c.x + off, ly = c.y;
+      const w = c.el.offsetWidth || 54, h = 13;
+      const rect = { l: lx, t: ly - h / 2, r: lx + w, b: ly + h / 2 };
+      if (placed.some((p) => !(rect.r < p.l || rect.l > p.r || rect.b < p.t || rect.t > p.b))) { c.el.style.display = 'none'; continue; }
+      placed.push(rect);
+      c.el.style.display = 'block'; c.el.style.left = `${lx}px`; c.el.style.top = `${ly}px`;
+    }
+  }
 
   // Position + size each planet's SOI sphere (true scale) from live positions.
   private updateSoi(state: Float64Array): void {
@@ -1047,6 +1101,7 @@ export class Renderer {
     this.renderer.autoClear = true;
     if (this.post) this.post.render();
     else this.renderer.render(this.scene, this.camera);
+    this.updateLabels();
   }
 
   /** Distance from camera to the focus (origin), in metres. For the HUD. */
