@@ -211,7 +211,7 @@ export class Renderer {
     // headless WebGPU presents to the swap chain but does not composite into
     // page screenshots).
     const forceWebGL = new URLSearchParams(location.search).has('webgl');
-    this.renderer = new THREE.WebGPURenderer({ antialias: true, forceWebGL });
+    this.renderer = new THREE.WebGPURenderer({ antialias: true, forceWebGL, logarithmicDepthBuffer: true });
     this.renderer.setClearColor(0x05070a, 1); // opaque near-black (§9 --bg)
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
