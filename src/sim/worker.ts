@@ -33,6 +33,55 @@ let particleTime = 0; // integrator clock (TDB s); tracks simTdb
 let particleDt = 3600; // adaptive step, seconds
 const massPos = new Float64Array(3 * 32); // massive-body positions (ecliptic), grown as needed
 
+// --- perturb-everything (P3): the whole system integrated off ephemeris rails ---
+let perturbing = false;
+let sysIas: IAS15 | null = null;
+let systemTime = 0;
+let systemDt = 43200; // adaptive, seconds (starts at half a day)
+
+// Full mutual N-body acceleration among the massive bodies (ecliptic m).
+function systemAccel(_t: number, x: Float64Array, a: Float64Array): void {
+  a.fill(0);
+  for (let i = 0; i < nBodies; i++) {
+    for (let j = i + 1; j < nBodies; j++) {
+      const dx = x[j * 3] - x[i * 3], dy = x[j * 3 + 1] - x[i * 3 + 1], dz = x[j * 3 + 2] - x[i * 3 + 2];
+      const r2 = dx * dx + dy * dy + dz * dz, inv = 1 / (r2 * Math.sqrt(r2));
+      const fi = gm[j] * inv, fj = gm[i] * inv;
+      a[i * 3] += fi * dx; a[i * 3 + 1] += fi * dy; a[i * 3 + 2] += fi * dz;
+      a[j * 3] -= fj * dx; a[j * 3 + 1] -= fj * dy; a[j * 3 + 2] -= fj * dz;
+    }
+  }
+}
+
+// Seed the system integrator from DE440 (ecliptic m, m/s) at the current epoch.
+function startPerturb(): void {
+  if (!eph) return;
+  sysIas = new IAS15(nBodies, systemAccel);
+  for (let i = 0; i < nBodies; i++) {
+    eph.state(bodyIds[i], simTdb, tmp);
+    eqjToEcl(tmp.subarray(0, 3), tmp.subarray(0, 3));
+    eqjToEcl(tmp.subarray(3, 6), tmp.subarray(3, 6));
+    sysIas.x.set(tmp.subarray(0, 3), i * 3);
+    sysIas.v.set(tmp.subarray(3, 6), i * 3);
+  }
+  systemTime = simTdb; systemDt = 43200;
+  perturbing = true;
+  ias = null; nParticles = 0; // test particles don't mix into the N-body run (MVP)
+  self.postMessage({ type: 'particles', tdb: simTdb, pos: new Float64Array(0) } as ParticleFrame);
+}
+
+function integrateSystem(target: number): void {
+  if (!sysIas) return;
+  let steps = 0;
+  while (systemTime < target - 1e-6 && steps < MAX_SUBSTEPS) {
+    const h = Math.min(systemDt, target - systemTime);
+    const err = sysIas.step(systemTime, h);
+    systemTime += h;
+    systemDt = sysIas.nextDt(systemDt, err);
+    steps++;
+  }
+}
+
 // Acceleration on each particle from every massive body at time t (ecliptic m).
 function particleAccel(t: number, x: Float64Array, a: Float64Array): void {
   if (!eph) { a.fill(0); return; }
@@ -85,6 +134,15 @@ function publishParticles(): void {
 
 // Fill `scratch` with the barycentric state for the current simTdb. No publish.
 function computeState(): void {
+  if (perturbing && sysIas) {
+    // Off ephemeris rails: bodies come from the N-body integrator (ecliptic).
+    for (let i = 0; i < nBodies; i++) {
+      const b = i * FLOATS_PER_BODY;
+      scratch[b] = sysIas.x[i * 3]; scratch[b + 1] = sysIas.x[i * 3 + 1]; scratch[b + 2] = sysIas.x[i * 3 + 2];
+      scratch[b + 3] = sysIas.v[i * 3]; scratch[b + 4] = sysIas.v[i * 3 + 1]; scratch[b + 5] = sysIas.v[i * 3 + 2];
+    }
+    return;
+  }
   if (!eph) return;
   for (let i = 0; i < nBodies; i++) {
     eph.state(bodyIds[i], simTdb, tmp); // m, m/s, ICRF/equatorial-J2000
@@ -116,7 +174,10 @@ function tick(): void {
   const now = performance.now();
   const dtReal = (now - lastReal) / 1000;
   lastReal = now;
-  if (rate !== 0) { simTdb += dtReal * rate; integrateParticles(simTdb); }
+  if (rate !== 0) {
+    simTdb += dtReal * rate;
+    if (perturbing) integrateSystem(simTdb); else integrateParticles(simTdb);
+  }
   publishFrame();
   publishParticles();
 }
@@ -154,8 +215,14 @@ self.onmessage = (e: MessageEvent<SimCommand>) => {
       // the new epoch (their clock resets) rather than integrating the gap.
       simTdb = msg.tdb;
       particleTime = msg.tdb;
+      if (perturbing) startPerturb(); // re-seed the N-body system at the new epoch
       publishFrame();
       publishParticles();
+      break;
+    case 'perturb':
+      if (msg.on) startPerturb();
+      else { perturbing = false; sysIas = null; }
+      publishFrame();
       break;
     case 'addParticle':
       addParticle(msg.x, msg.v);

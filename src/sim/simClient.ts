@@ -91,6 +91,12 @@ export class SimClient {
     this.particles = new Float64Array(0); this.particleCount = 0;
   }
 
+  /** Switch the whole system to full N-body integration (off ephemeris rails). */
+  setPerturb(on: boolean): void {
+    this.worker.postMessage({ type: 'perturb', on });
+    if (on) { this.particles = new Float64Array(0); this.particleCount = 0; }
+  }
+
   /** Latest test-particle positions (count*3, barycentric ecliptic m). */
   particlePositions(): Float64Array { return this.particles; }
 }

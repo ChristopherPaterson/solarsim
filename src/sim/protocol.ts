@@ -26,7 +26,9 @@ export type SimCommand =
   | { type: 'jumpTo'; tdb: number }
   // Insert a massless test particle (P3): barycentric ecliptic-J2000 SI state.
   | { type: 'addParticle'; x: [number, number, number]; v: [number, number, number] }
-  | { type: 'clearParticles' };
+  | { type: 'clearParticles' }
+  // Perturb-everything (P3): integrate the whole system off ephemeris rails.
+  | { type: 'perturb'; on: boolean };
 
 // Worker -> main, no-SAB fallback only. One per sim tick; `state` is a copy
 // (nBodies*6 floats), cheap to structured-clone at ~630 B / 60 Hz.

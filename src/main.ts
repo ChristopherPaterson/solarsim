@@ -46,7 +46,8 @@ hud.innerHTML = `
   <label class="row"><span>TRUE SCALE</span><input type="checkbox" id="truescale"></label>
   <label class="row"><span>FLY (WASD+drag)</span><input type="checkbox" id="fly"></label>
   <label class="row"><span>INSERT (click+drag)</span><input type="checkbox" id="insert"></label>
-  <div class="row"><button id="clearp">CLEAR PARTICLES</button></div>
+  <div class="row"><button id="ghost">GHOST FOCUS</button><button id="clearp">CLEAR PARTICLES</button></div>
+  <label class="row"><span>PERTURB ALL (N-body)</span><input type="checkbox" id="perturb"></label>
   <label class="row"><span>DEBUG</span><input type="checkbox" id="debug"></label>
   <div class="mono" id="readout"></div>
 `;
@@ -107,7 +108,26 @@ insertChk.addEventListener('change', () => {
   if (insertChk.checked && flyChk.checked) { flyChk.checked = false; renderer.setFlyMode(false); }
   renderer.setInsertMode(insertChk.checked, (x, v) => sim.addParticle(x, v));
 });
+// Ghost: drop a test particle at the focus body's exact state. It integrates in
+// the sim's Newtonian field and should track the body's ephemeris orbit line;
+// the slow divergence (only 10 bodies, no GR) is the visible correctness check.
+$<HTMLButtonElement>('#ghost').addEventListener('click', () => {
+  const b = focusIdx * 6;
+  sim.addParticle([state[b], state[b + 1], state[b + 2]], [state[b + 3], state[b + 4], state[b + 5]]);
+});
 $<HTMLButtonElement>('#clearp').addEventListener('click', () => sim.clearParticles());
+
+// Perturb-everything: whole system goes full N-body, with a clear signal that
+// reality has been left behind.
+const perturbChk = $<HTMLInputElement>('#perturb');
+const nbodyBanner = document.createElement('div');
+nbodyBanner.textContent = '⚠ N-BODY — OFF EPHEMERIS RAILS';
+nbodyBanner.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);padding:6px 16px;background:rgba(190,40,20,0.85);color:#fff;font:600 13px ui-monospace,monospace;letter-spacing:1.5px;border-radius:4px;display:none;z-index:10;pointer-events:none';
+app.appendChild(nbodyBanner);
+perturbChk.addEventListener('change', () => {
+  sim.setPerturb(perturbChk.checked);
+  nbodyBanner.style.display = perturbChk.checked ? 'block' : 'none';
+});
 
 flyChk.addEventListener('change', () => {
   if (flyChk.checked && insertChk.checked) { insertChk.checked = false; renderer.setInsertMode(false); }
