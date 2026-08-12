@@ -64,7 +64,8 @@ function atmosphereMaterial(colour: number): THREE.MeshBasicNodeMaterial {
   return mat;
 }
 // Bodies with a bundled equirectangular albedo map; everything else = flat colour.
-const TEXTURED = new Set(['Sun', 'Mercury', 'Venus', 'Earth', 'Moon', 'Mars', 'Jupiter', 'Saturn', 'Uranus', 'Neptune']);
+const TEXTURED = new Set(['Sun', 'Mercury', 'Venus', 'Earth', 'Moon', 'Mars', 'Jupiter', 'Saturn', 'Uranus', 'Neptune',
+  'Pluto', 'Ganymede', 'Callisto', 'Europa', 'Phobos', 'Deimos']);
 
 /** Mesh +Y aligned to a body's spin pole (IAU RA/Dec in deg, ICRF equatorial). */
 function poleQuat(poleRA: number, poleDec: number): THREE.Quaternion {
