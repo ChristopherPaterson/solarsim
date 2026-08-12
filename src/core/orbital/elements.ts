@@ -102,7 +102,6 @@ export function sampleOrbitPathRV(
   const ev = new Float64Array(3);
   for (let k = 0; k < 3; k++) ev[k] = ((vmag2 - mu / rmag) * r[k] - rv * v[k]) / mu;
   const e = mag(ev);
-  const b = a * Math.sqrt(Math.max(0, 1 - e * e));
 
   // Perifocal basis. For a near-circular orbit e->0, use r as the (arbitrary)
   // periapsis direction; the resulting circle still passes through r.
@@ -112,17 +111,30 @@ export function sampleOrbitPathRV(
   const hz = new Float64Array([h[0] / hmag, h[1] / hmag, h[2] / hmag]);
   const ey = cross(hz, ex); // in-plane, perpendicular to ex
 
-  // Seed the sweep at the body's own eccentric anomaly so vertex 0 lands exactly
-  // on the body — otherwise it falls mid-segment and sits off the drawn polyline
-  // by the chord sagitta (up to ~1.8 body radii at true scale for 256 segments).
+  // Sample at EQUAL TANGENT-TURN, seeded at the body's own point (vertex 0 lands on
+  // the body). Each segment rotates the tangent by the same 2π/n, so the polyline
+  // is smooth everywhere — vertices bunch through the tight perihelion AND aphelion
+  // turns (an elongated ellipse has a sharp tip at *both* major-axis ends, radius
+  // of curvature = semi-latus rectum) and thin along the near-straight flanks.
+  // Uniform eccentric anomaly under-samples both tips (~31°/segment at e=0.999);
+  // uniform true anomaly smooths perihelion but leaves a ~170° kink at aphelion.
+  //
+  // The perifocal velocity is ∝ (−sinν, e+cosν), so the tangent angle is
+  // φ(ν)=atan2(e+cosν, −sinν) (monotonic, turns 2π over the orbit). Inverting is
+  // closed-form: for a target φ, R=e·sinφ+√(1−e²cos²φ), ν=atan2(−R·cosφ, R·sinφ−e).
+  const p = a * (1 - e * e); // semi-latus rectum (>0 for the bound ellipse)
   const rx = r[0] * ex[0] + r[1] * ex[1] + r[2] * ex[2];
   const ry = r[0] * ey[0] + r[1] * ey[1] + r[2] * ey[2];
-  const E0 = Math.atan2(ry / (b || 1), rx / a + e);
+  const nu0 = Math.atan2(ry, rx);
+  const phi0 = Math.atan2(e + Math.cos(nu0), -Math.sin(nu0));
 
   for (let k = 0; k < n; k++) {
-    const E = E0 + (k / n) * 2 * Math.PI;
-    const px = a * (Math.cos(E) - e);
-    const py = b * Math.sin(E);
+    const phi = phi0 + (k / n) * 2 * Math.PI;
+    const cphi = Math.cos(phi), sphi = Math.sin(phi);
+    const R = e * sphi + Math.sqrt(Math.max(0, 1 - e * e * cphi * cphi));
+    const nu = Math.atan2(-R * cphi, R * sphi - e);
+    const rr = p / (1 + e * Math.cos(nu));
+    const px = rr * Math.cos(nu), py = rr * Math.sin(nu);
     out[k * 3] = px * ex[0] + py * ey[0];
     out[k * 3 + 1] = px * ex[1] + py * ey[1];
     out[k * 3 + 2] = px * ex[2] + py * ey[2];
