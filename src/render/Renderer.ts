@@ -617,7 +617,8 @@ export class Renderer {
   pickSatellite(clientX: number, clientY: number): { name: string; key: string } | null {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const px = clientX - rect.left, py = clientY - rect.top;
-    let best = 12; let hit: { name: string; key: string } | null = null;
+    let best = matchMedia('(pointer: coarse)').matches ? 22 : 12; // fatter tap target on touch
+    let hit: { name: string; key: string } | null = null;
     for (const g of this.satGroups) {
       if (!g.visible || !g.drawCount) continue;
       const arr = g.points.geometry.getAttribute('position').array as Float32Array;

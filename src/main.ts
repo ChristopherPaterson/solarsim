@@ -103,7 +103,7 @@ hud.innerHTML = `
   <div class="title"><b>SOLARSIM</b><span class="badges"><span class="badge" id="backend">…</span><span class="badge" id="fps">-- FPS</span></span></div>
 
   <div class="search">
-    <input type="text" id="search" placeholder="⌕  SEARCH  ( / )" autocomplete="off" spellcheck="false">
+    <input type="text" id="search" aria-label="Search bodies and satellites" placeholder="⌕  SEARCH  ( / )" autocomplete="off" spellcheck="false">
     <div class="results" id="results"></div>
   </div>
 
@@ -122,7 +122,7 @@ hud.innerHTML = `
     <label class="row"><span>TACTICAL</span><input type="checkbox" id="tactical" checked></label>
     <label class="row"><span>ORBIT PATHS</span><input type="checkbox" id="orbits" checked></label>
     <label class="row"><span>OBSERVER · SKY</span><input type="checkbox" id="observer"></label>
-    <div class="row" id="obsrow" style="display:none"><span class="sub">↳ LAT / LON</span><span><input id="obslat" type="number" value="-33.87" step="0.5" style="width:52px"><input id="obslon" type="number" value="151.21" step="0.5" style="width:52px"></span></div>
+    <div class="row" id="obsrow" style="display:none"><span class="sub">↳ LAT / LON</span><span><input id="obslat" aria-label="Observer latitude" type="number" value="-33.87" step="0.5" style="width:52px"><input id="obslon" aria-label="Observer longitude" type="number" value="151.21" step="0.5" style="width:52px"></span></div>
     <label class="row"><span>FLY · WASD+DRAG</span><input type="checkbox" id="fly"></label>
   </div></details>
 

@@ -123,7 +123,7 @@ canvas { display: block; }
 }
 .panel .panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .panel .panel-head b { color: var(--amber); letter-spacing: 0.11em; text-transform: uppercase; font-size: 12px; }
-.panel .panel-x { cursor: pointer; opacity: 0.6; padding: 1px 6px; }
+.panel .panel-x { cursor: pointer; opacity: 0.6; padding: 1px 6px; display: inline-block; line-height: 1.2; }
 .panel .panel-x:hover { opacity: 1; color: var(--amber); }
 .panel .panel-rule { border-top: 1px solid var(--rule); margin: 9px 0 6px; padding-top: 6px; color: var(--amber); letter-spacing: 0.1em; text-transform: uppercase; font-weight: 700; font-size: 10px; }
 .panel .row { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin: 3px 0; }
@@ -232,8 +232,16 @@ canvas { display: block; }
   .hud input[type='range'] { height: 22px; }
   .hud .sec > summary { padding: 10px 0 9px; }
   .hud .sat-legend .sw { font-size: 12px; }
-  .help-btn { width: 44px; height: 44px; font-size: 19px; }
+  .help-btn { width: 44px; height: 44px; font-size: 19px; bottom: 64px; } /* clear bottom-right panels */
   .tactical { width: 152px; height: 152px; top: 10px; right: 10px; }
+  /* Taller tap rows in the console. */
+  .hud label, .hud .row, .hud .results .r { min-height: 40px; }
+  /* Floating tool panels get the same fat-finger treatment as the HUD. */
+  .panel { font-size: 13px; }
+  .panel .panel-x { padding: 8px 12px; }
+  .panel select, .panel input[type='number'] { padding: 7px; font-size: 13px; }
+  .panel input[type='range'] { height: 22px; }
+  .node-chip { padding: 8px 12px; }
 }
 
 /* Notice / fallback */
