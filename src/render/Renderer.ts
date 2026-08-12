@@ -173,6 +173,13 @@ export class Renderer {
   private orbitRanges: { key: string; start: number; end: number }[] = []; // vertex range per drawn ring
   private orbitHi: string | null = null; // currently highlighted ring key
   private lastTdb = 0;
+  // Isolated-satellite mode (picked from search): a yellow halo marker + that one
+  // satellite's own orbit ring, with every other satellite + ring hidden.
+  private satHalo!: THREE.Sprite;
+  private isoOrbit!: THREE.Line;
+  private isoKey: string | null = null;
+  private isoSat: satellite.SatRec | null = null;
+  private satOrbitsOn = false; // desired ring visibility (to restore after isolate)
   readonly domElement!: HTMLCanvasElement; // canvas, for input handlers in main
   private labelBox!: HTMLDivElement; // DOM overlay for body name labels
   private labels: { b: RenderBody; el: HTMLDivElement }[] = [];
@@ -281,6 +288,20 @@ export class Renderer {
       this.satOrbits = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.55, depthWrite: false }));
     }
     this.satOrbits.frustumCulled = false; this.satOrbits.visible = false; this.satOrbits.geometry.setDrawRange(0, 0); this.scene.add(this.satOrbits);
+    // Isolated-satellite marker: a yellow ring sprite (drawn on top, screen-sized)
+    // and its own orbit loop, both hidden until a satellite is picked from search.
+    const hc = document.createElement('canvas'); hc.width = hc.height = 64;
+    const hx = hc.getContext('2d')!;
+    hx.translate(32, 32); hx.shadowColor = '#ffe14d'; hx.shadowBlur = 6;
+    hx.strokeStyle = '#ffe14d'; hx.lineWidth = 4; hx.beginPath(); hx.arc(0, 0, 22, 0, Math.PI * 2); hx.stroke();
+    this.satHalo = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: new THREE.CanvasTexture(hc), transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending,
+    }));
+    this.satHalo.visible = false; this.satHalo.renderOrder = 999; this.scene.add(this.satHalo);
+    const ig = new THREE.BufferGeometry();
+    ig.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(97 * 3), 3)); // 96 samples + closing vertex
+    this.isoOrbit = new THREE.Line(ig, new THREE.LineBasicMaterial({ color: 0xffe14d, transparent: true, opacity: 0.9, depthWrite: false }));
+    this.isoOrbit.frustumCulled = false; this.isoOrbit.visible = false; this.scene.add(this.isoOrbit);
     const el = this.renderer.domElement;
     el.addEventListener('pointerdown', (e) => this.onGizmoDown(e));
     el.addEventListener('pointermove', (e) => this.onGizmoMove(e));
@@ -576,7 +597,8 @@ export class Renderer {
   // orbit over one period (ECI-ecliptic, Earth-relative) into one LineSegments.
   // Capped so a mega-constellation can't blow the buffer.
   setSatOrbitsVisible(on: boolean): void {
-    this.satOrbits.visible = on;
+    this.satOrbitsOn = on;
+    this.satOrbits.visible = on && this.isoKey == null; // isolate hides the swarm rings
     if (on) this.computeSatOrbits();
   }
 
@@ -652,6 +674,56 @@ export class Renderer {
     if (!this.satOrbits.visible || this.earthIdx < 0) return;
     const ex = state[this.earthIdx * 6], ey = state[this.earthIdx * 6 + 1], ez = state[this.earthIdx * 6 + 2];
     this.satOrbits.position.set(ex - this.focusAbs.x, ey - this.focusAbs.y, ez - this.focusAbs.z);
+  }
+
+  /** Show only this satellite + its own orbit, with a yellow halo on it. null
+   *  clears isolate and restores the normal satellite view. */
+  isolateSatellite(key: string | null): void {
+    this.isoKey = key;
+    if (!key) {
+      this.isoSat = null;
+      this.satHalo.visible = false; this.isoOrbit.visible = false;
+      for (const g of this.satGroups) g.points.visible = g.visible; // restore swarm
+      this.satOrbits.visible = this.satOrbitsOn;
+      return;
+    }
+    const hash = key.lastIndexOf('#');
+    const g = this.satGroups.find((x) => x.name === key.slice(0, hash));
+    this.isoSat = g ? g.satrecs[+key.slice(hash + 1)] ?? null : null;
+    if (!this.isoSat) { this.isoKey = null; return; }
+    // Sample its orbit once over one period (ECI ecliptic, Earth-relative).
+    const rec = this.isoSat, SEG = 96, periodMin = (2 * Math.PI) / rec.no;
+    const arr = this.isoOrbit.geometry.getAttribute('position').array as Float32Array;
+    let ok = 0;
+    for (let k = 0; k < SEG; k++) {
+      const pv = satellite.propagate(rec, tdbToDate((this.lastTdb + (k / SEG) * periodMin * 60) as never));
+      const pos = pv?.position;
+      if (!pos || typeof pos === 'boolean') continue;
+      this.vr[0] = pos.x * 1000; this.vr[1] = pos.y * 1000; this.vr[2] = pos.z * 1000; eqjToEcl(this.vr, this.vr);
+      arr[ok * 3] = this.vr[0]; arr[ok * 3 + 1] = this.vr[1]; arr[ok * 3 + 2] = this.vr[2]; ok++;
+    }
+    if (ok > 0) { arr[ok * 3] = arr[0]; arr[ok * 3 + 1] = arr[1]; arr[ok * 3 + 2] = arr[2]; ok++; } // close the loop
+    this.isoOrbit.geometry.setDrawRange(0, ok);
+    (this.isoOrbit.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
+    this.isoOrbit.visible = true; this.satHalo.visible = true;
+    this.satOrbits.visible = false;                       // hide the swarm's rings
+    for (const g2 of this.satGroups) g2.points.visible = false; // hide all sat points
+  }
+
+  // Follow the isolated satellite: place its halo at its current position and
+  // shift its orbit ring to Earth. Halo is scaled to a constant on-screen size.
+  private updateIsolated(state: Float64Array, tdb: number): void {
+    if (!this.isoKey || !this.isoSat || this.earthIdx < 0) return;
+    const ex = state[this.earthIdx * 6], ey = state[this.earthIdx * 6 + 1], ez = state[this.earthIdx * 6 + 2];
+    this.isoOrbit.position.set(ex - this.focusAbs.x, ey - this.focusAbs.y, ez - this.focusAbs.z);
+    const pv = satellite.propagate(this.isoSat, tdbToDate(tdb as never));
+    const pos = pv?.position;
+    if (!pos || typeof pos === 'boolean') { this.satHalo.visible = false; return; }
+    this.satHalo.visible = true;
+    this.vr[0] = pos.x * 1000; this.vr[1] = pos.y * 1000; this.vr[2] = pos.z * 1000; eqjToEcl(this.vr, this.vr);
+    this.satHalo.position.set(this.vr[0] + ex - this.focusAbs.x, this.vr[1] + ey - this.focusAbs.y, this.vr[2] + ez - this.focusAbs.z);
+    const d = this.camera.position.distanceTo(this.satHalo.position);
+    this.satHalo.scale.setScalar(d * 0.05); // ~constant angular size regardless of zoom
   }
 
   // Rewrite each visible mission's line offset by focus + place its epoch marker.
@@ -1079,6 +1151,7 @@ export class Renderer {
     this.lastTdb = tdb;
     this.updateSatellites(state, tdb);
     this.updateSatOrbits(state);
+    this.updateIsolated(state, tdb);
     this.updateMissions(tdb);
     this.updateVessel(tdb);
     this.updateTransfer();

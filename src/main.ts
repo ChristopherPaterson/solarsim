@@ -238,6 +238,7 @@ function frameFocus() {
   const exagg = trueScale.checked ? 1 : exaggeration;
   const dispR = def.radius * (def.id === 'Sun' ? Math.min(exagg, 30) : exagg);
   const d = dispR * 10;
+  renderer.controls.target.set(0, 0, 0); // focus body is pinned at the origin; recentre (undo any pan)
   renderer.camera.position.set(0, d * 0.375, d * 0.927);
   renderer.controls.update();
 }
@@ -372,13 +373,14 @@ const BODY_INDEX = SOLAR_SYSTEM.map((b, i) => ({ i, name: b.id, kind: b.id === '
 const earthFocus = SOLAR_SYSTEM.findIndex((b) => b.id === 'Earth');
 
 function focusBody(idx: number) {
+  renderer.isolateSatellite(null); // leaving a satellite -> restore the normal view
   focusSel.value = String(idx); focusSel.dispatchEvent(new Event('change'));
 }
 function selectSatellite(key: string) {
   focusBody(earthFocus);
   if (!satChk.checked) { satChk.checked = true; satChk.dispatchEvent(new Event('change')); }
   if (!satOrbChk.checked) { satOrbChk.checked = true; satOrbChk.dispatchEvent(new Event('change')); }
-  renderer.highlightSatOrbit(key);
+  renderer.isolateSatellite(key); // show only this sat + its orbit, with a yellow halo
 }
 type Hit = { label: string; tag: string; run: () => void };
 let hits: Hit[] = [];
@@ -423,7 +425,7 @@ function nudgeWarp(dir: number) {
   rateInput.dispatchEvent(new Event('input'));
 }
 window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') { toggleHelp(false); resultsBox.style.display = 'none'; renderer.highlightSatOrbit(null); return; }
+  if (e.key === 'Escape') { toggleHelp(false); resultsBox.style.display = 'none'; renderer.highlightSatOrbit(null); renderer.isolateSatellite(null); return; }
   if (typing()) return;
   switch (e.key) {
     case '/': e.preventDefault(); hud.classList.add('open'); searchInput.focus(); break;
