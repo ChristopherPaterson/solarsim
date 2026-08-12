@@ -112,8 +112,15 @@ export function sampleOrbitPathRV(
   const hz = new Float64Array([h[0] / hmag, h[1] / hmag, h[2] / hmag]);
   const ey = cross(hz, ex); // in-plane, perpendicular to ex
 
+  // Seed the sweep at the body's own eccentric anomaly so vertex 0 lands exactly
+  // on the body — otherwise it falls mid-segment and sits off the drawn polyline
+  // by the chord sagitta (up to ~1.8 body radii at true scale for 256 segments).
+  const rx = r[0] * ex[0] + r[1] * ex[1] + r[2] * ex[2];
+  const ry = r[0] * ey[0] + r[1] * ey[1] + r[2] * ey[2];
+  const E0 = Math.atan2(ry / (b || 1), rx / a + e);
+
   for (let k = 0; k < n; k++) {
-    const E = (k / n) * 2 * Math.PI;
+    const E = E0 + (k / n) * 2 * Math.PI;
     const px = a * (Math.cos(E) - e);
     const py = b * Math.sin(E);
     out[k * 3] = px * ex[0] + py * ey[0];

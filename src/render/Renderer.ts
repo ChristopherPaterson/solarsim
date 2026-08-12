@@ -165,6 +165,7 @@ export class Renderer {
   private unit = new THREE.SphereGeometry(1, 64, 32);
   private sunIdx = 0;
   private orbits: { idx: number; centerIdx: number; mu: number; line: THREE.Line; scratch: Float64Array }[] = [];
+  private orbitFar = 0; // farthest visible orbit vertex from focus, for the camera far plane
   private fly: FlyControls | null = null;
   private post: THREE.PostProcessing | null = null;
   private spin = new THREE.Quaternion(); // scratch, reused per body per frame
@@ -1166,6 +1167,7 @@ export class Renderer {
 
   private updateOrbits(state: Float64Array): void {
     const r = new Float64Array(3), v = new Float64Array(3);
+    let orbitFar = 0;
     for (const o of this.orbits) {
       o.line.visible = this.showOrbits;
       if (!this.showOrbits) continue;
@@ -1174,13 +1176,24 @@ export class Renderer {
       if (!sampleOrbitPathRV(r, v, o.mu, ORBIT_SEGMENTS, o.scratch)) { o.line.visible = false; continue; }
       const pos = o.line.geometry.getAttribute('position') as THREE.BufferAttribute;
       const arr = pos.array as Float32Array;
-      for (let k = 0; k < o.scratch.length; k++) arr[k] = o.scratch[k];
-      arr[o.scratch.length] = o.scratch[0]; // close the loop
-      arr[o.scratch.length + 1] = o.scratch[1];
-      arr[o.scratch.length + 2] = o.scratch[2];
+      // Store points as focus-relative scene coords (centre - focus + ellipse),
+      // computed in Float64 then narrowed. Storing them centre-relative (values up
+      // to tens of AU) burns all the Float32 mantissa, so an outer planet's orbit
+      // line drifted visibly off the body at zoom. Near-focus vertices are now
+      // small-magnitude and land exactly on the body.
+      const ox = state[cb] - this.focusAbs.x, oy = state[cb + 1] - this.focusAbs.y, oz = state[cb + 2] - this.focusAbs.z;
+      for (let k = 0; k < o.scratch.length; k += 3) {
+        const x = o.scratch[k] + ox, y = o.scratch[k + 1] + oy, z = o.scratch[k + 2] + oz;
+        arr[k] = x; arr[k + 1] = y; arr[k + 2] = z;
+        const d = Math.hypot(x, y, z); if (d > orbitFar) orbitFar = d;
+      }
+      arr[o.scratch.length] = arr[0]; // close the loop
+      arr[o.scratch.length + 1] = arr[1];
+      arr[o.scratch.length + 2] = arr[2];
       pos.needsUpdate = true;
-      o.line.position.copy(this.bodies[o.centerIdx].mesh.position); // centre-relative points + centre scene position
+      o.line.position.set(0, 0, 0);
     }
+    this.orbitFar = orbitFar; // farthest visible orbit vertex from focus (for the far plane)
   }
 
   /**
@@ -1298,7 +1311,10 @@ export class Renderer {
     }
     const camDist = camPos.length(); // distance to focus at origin
     this.camera.near = Math.max(1, camDist * 0.02);
-    this.camera.far = Math.max(camDist * 5, dmax * 1.5, this.camera.near * 10);
+    // Reach past the farthest visible orbit vertex too, so a long-period comet's
+    // path (aphelion hundreds of AU) isn't clipped by the far plane. The log depth
+    // buffer keeps precision across the wide near:far this opens up.
+    this.camera.far = Math.max(camDist * 5, dmax * 1.5, this.orbitFar + camDist, this.camera.near * 10);
     this.camera.updateProjectionMatrix();
     this.renderer.autoClear = true;
     if (this.post) this.post.render();
