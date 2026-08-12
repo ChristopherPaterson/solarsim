@@ -230,7 +230,18 @@ trueScale.addEventListener('change', () => {
   else exaggeration = Math.pow(10, parseFloat(scaleInput.value));
   persist();
 });
-focusSel.addEventListener('change', () => { focusIdx = parseInt(focusSel.value); persist(); });
+// Dolly the camera to frame the focus body (pinned at the origin). Distance
+// scales with the body's *displayed* radius so it fills a similar fraction of
+// the view whether true-scale or exaggerated.
+function frameFocus() {
+  const def = SOLAR_SYSTEM[focusIdx];
+  const exagg = trueScale.checked ? 1 : exaggeration;
+  const dispR = def.radius * (def.id === 'Sun' ? Math.min(exagg, 30) : exagg);
+  const d = dispR * 10;
+  renderer.camera.position.set(0, d * 0.375, d * 0.927);
+  renderer.controls.update();
+}
+focusSel.addEventListener('change', () => { focusIdx = parseInt(focusSel.value); frameFocus(); persist(); });
 $<HTMLSelectElement>('#frame').addEventListener('change', (e) => renderer.setFrame(parseInt((e.target as HTMLSelectElement).value)));
 
 // P3 insert: click the ecliptic to place a body, drag to set its velocity (a
