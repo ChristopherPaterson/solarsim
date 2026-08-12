@@ -143,11 +143,8 @@ export class Renderer {
   private insertOnCommit: InsertCommit | null = null;
   private ray = new THREE.Raycaster();
   private ndc = new THREE.Vector2();
-  // Voyager 1 real trajectory (P3.5): baked polyline + a marker at the current epoch.
-  private voyagerLine!: THREE.Line;
-  private voyagerMarker!: THREE.Points;
-  private voyagerAbs: Float64Array | null = null; // n*3 barycentric ecliptic m
-  private voyagerTimes: Float64Array | null = null; // n (TDB s)
+  // Real mission trajectories (P3.5): baked polylines + a marker at the current epoch.
+  private missions: { name: string; line: THREE.Line; marker: THREE.Points; abs: Float64Array; times: Float64Array }[] = [];
   // Vessel on rails (P3.5): heliocentric Kepler plan, offset by the Sun each frame.
   private vessel: Vessel | null = null;
   private vesselMarker!: THREE.Points;
@@ -207,15 +204,6 @@ export class Renderer {
 
     this.setupParticles();
     this.setupInsert();
-    this.voyagerLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xff5aa0, transparent: true, opacity: 0.85 }));
-    this.voyagerLine.frustumCulled = false; this.voyagerLine.visible = false;
-    this.scene.add(this.voyagerLine);
-    this.voyagerMarker = new THREE.Points(
-      new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3)),
-      new THREE.PointsMaterial({ color: 0xff9ad0, size: 9, sizeAttenuation: false, depthTest: false, transparent: true }),
-    );
-    this.voyagerMarker.frustumCulled = false; this.voyagerMarker.visible = false;
-    this.scene.add(this.voyagerMarker);
     // Vessel: planned trajectory line, craft marker, maneuver-node markers.
     this.vesselLine = new THREE.Line(
       new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(Renderer.VTRAJ * 3), 3)),
@@ -378,8 +366,8 @@ export class Renderer {
     this.controls.enabled = !this.inserting;
   }
 
-  /** Load Voyager 1's baked trajectory ([tdb_s, x, y, z] per sample, m). */
-  async loadVoyager(url: string): Promise<void> {
+  /** Load a real mission trajectory ([tdb_s, x, y, z] per sample, m) in `color`. */
+  async loadMission(name: string, url: string, color: number): Promise<void> {
     const buf = await (await fetch(url)).arrayBuffer();
     const dv = new DataView(buf);
     const n = dv.getUint32(0, true);
@@ -389,30 +377,33 @@ export class Renderer {
       times[i] = dv.getFloat64(o, true);
       abs[i * 3] = dv.getFloat64(o + 8, true); abs[i * 3 + 1] = dv.getFloat64(o + 16, true); abs[i * 3 + 2] = dv.getFloat64(o + 24, true);
     }
-    this.voyagerTimes = times; this.voyagerAbs = abs;
-    this.voyagerLine.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
-    this.voyagerLine.geometry.setDrawRange(0, n);
-    this.voyagerLine.visible = true; this.voyagerMarker.visible = true;
+    const line = new THREE.Line(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(n * 3), 3)),
+      new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.85 }));
+    line.frustumCulled = false; line.geometry.setDrawRange(0, n); this.scene.add(line);
+    const marker = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3)),
+      new THREE.PointsMaterial({ color, size: 8, sizeAttenuation: false, depthTest: false, transparent: true }));
+    marker.frustumCulled = false; this.scene.add(marker);
+    this.missions.push({ name, line, marker, abs, times });
   }
 
-  setVoyagerVisible(on: boolean): void {
-    if (this.voyagerAbs) { this.voyagerLine.visible = on; this.voyagerMarker.visible = on; }
+  setMissionVisible(name: string, on: boolean): void {
+    const m = this.missions.find((x) => x.name === name);
+    if (m) { m.line.visible = on; m.marker.visible = on; }
   }
+  missionNames(): string[] { return this.missions.map((m) => m.name); }
 
-  // Rewrite the trajectory line offset by focus, and place the epoch marker.
-  private updateVoyager(tdb: number): void {
-    const abs = this.voyagerAbs, times = this.voyagerTimes;
-    if (!abs || !times || !this.voyagerLine.visible) return;
-    const n = times.length, fx = this.focusAbs.x, fy = this.focusAbs.y, fz = this.focusAbs.z;
-    const pos = this.voyagerLine.geometry.getAttribute('position') as THREE.BufferAttribute;
-    const arr = pos.array as Float32Array;
-    for (let i = 0; i < n; i++) { arr[i * 3] = abs[i * 3] - fx; arr[i * 3 + 1] = abs[i * 3 + 1] - fy; arr[i * 3 + 2] = abs[i * 3 + 2] - fz; }
-    pos.needsUpdate = true;
-    // Marker: linear-interp Voyager's position at tdb (hidden outside the span).
-    const mk = this.voyagerMarker.geometry.getAttribute('position') as THREE.BufferAttribute;
-    if (tdb < times[0] || tdb > times[n - 1]) { this.voyagerMarker.visible = false; }
-    else {
-      this.voyagerMarker.visible = true;
+  // Rewrite each visible mission's line offset by focus + place its epoch marker.
+  private updateMissions(tdb: number): void {
+    const fx = this.focusAbs.x, fy = this.focusAbs.y, fz = this.focusAbs.z;
+    for (const ms of this.missions) {
+      if (!ms.line.visible) continue;
+      const { abs, times } = ms, n = times.length;
+      const arr = ms.line.geometry.getAttribute('position').array as Float32Array;
+      for (let i = 0; i < n; i++) { arr[i * 3] = abs[i * 3] - fx; arr[i * 3 + 1] = abs[i * 3 + 1] - fy; arr[i * 3 + 2] = abs[i * 3 + 2] - fz; }
+      (ms.line.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
+      const mk = ms.marker.geometry.getAttribute('position') as THREE.BufferAttribute;
+      if (tdb < times[0] || tdb > times[n - 1]) { ms.marker.visible = false; continue; }
+      ms.marker.visible = true;
       let lo = 0, hi = n - 1;
       while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (times[mid] <= tdb) lo = mid; else hi = mid; }
       const f = (tdb - times[lo]) / (times[hi] - times[lo] || 1);
@@ -730,7 +721,7 @@ export class Renderer {
     }
     this.updateOrbits(state);
     this.updateSoi(state);
-    this.updateVoyager(tdb);
+    this.updateMissions(tdb);
     this.updateVessel(tdb);
     this.updateTransfer();
     if (this.starField) this.starField.update(this.camera);

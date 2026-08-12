@@ -33,7 +33,16 @@ const renderer = new Renderer(app);
 await renderer.init();
 renderer.setBodies(SOLAR_SYSTEM);
 renderer.loadStars('data/stars.bin', tdbToDate(startTdb as never).getFullYear()).catch((e) => console.warn('stars:', e));
-renderer.loadVoyager('data/voyager1.bin').catch((e) => console.warn('voyager:', e));
+
+// Real mission trajectories (JPL): [name, label, colour, on-by-default].
+const MISSIONS: [string, string, number, boolean][] = [
+  ['voyager1', 'Voyager 1', 0xff5aa0, true], ['voyager2', 'Voyager 2', 0xff8a5a, true],
+  ['newhorizons', 'New Horizons', 0x88ff88, true], ['parker', 'Parker Solar Probe', 0xffd24a, true],
+  ['juno', 'Juno', 0x9a7bff, false], ['cassini', 'Cassini', 0x7affc0, false], ['jwst', 'JWST', 0xffffff, false],
+];
+for (const [name, , color, on] of MISSIONS) {
+  renderer.loadMission(name, `data/missions/${name}.bin`, color).then(() => renderer.setMissionVisible(name, on)).catch((e) => console.warn(name, e));
+}
 
 const state = new Float64Array(nBodies * 6);
 let curTdb = startTdb;
@@ -57,7 +66,7 @@ hud.innerHTML = `
   <div class="row"><button id="vessel">+ VESSEL (from Earth)</button></div>
   <div class="row"><button id="transfer">TRANSFER PLANNER</button></div>
   <div class="row"><button id="dvladder">Δv LADDER</button></div>
-  <label class="row"><span>VOYAGER 1</span><input type="checkbox" id="voyager" checked></label>
+  <div id="missions" style="margin:2px 0"></div>
   <label class="row"><span>SPHERES OF INFLUENCE</span><input type="checkbox" id="soi"></label>
   <label class="row"><span>DEBUG</span><input type="checkbox" id="debug"></label>
   <div class="mono" id="readout"></div>
@@ -140,8 +149,12 @@ perturbChk.addEventListener('change', () => {
 const togglePorkchop = createPorkchopPanel(sim, () => curTdb, app);
 $<HTMLButtonElement>('#porkchop').addEventListener('click', togglePorkchop);
 
-const voyagerChk = $<HTMLInputElement>('#voyager');
-voyagerChk.addEventListener('change', () => renderer.setVoyagerVisible(voyagerChk.checked));
+// Mission toggles, colour-coded to their trajectories.
+const missionsBox = $<HTMLDivElement>('#missions');
+missionsBox.innerHTML = MISSIONS.map(([name, label, color, on]) =>
+  `<label class="row" style="font-size:10px"><span style="color:#${color.toString(16).padStart(6, '0')}">${label}</span><input type="checkbox" data-m="${name}" ${on ? 'checked' : ''}></label>`).join('');
+missionsBox.querySelectorAll<HTMLInputElement>('input[data-m]').forEach((chk) =>
+  chk.addEventListener('change', () => renderer.setMissionVisible(chk.dataset.m!, chk.checked)));
 const soiChk = $<HTMLInputElement>('#soi');
 soiChk.addEventListener('change', () => renderer.setSoiVisible(soiChk.checked));
 

@@ -24,15 +24,15 @@
       "notes": "P2. Chebyshev coefficients baked by tools/bake_ephemeris.py for 1950-2099, 13 segments. Sun/Mercury/Venus/Earth/Moon/Mars as true centres (sub-km vs Horizons); Jupiter/Saturn/Uranus/Neptune as system barycentres (centre needs satellite kernels)."
     },
     {
-      "id": "voyager1-trajectory",
+      "id": "mission-trajectories",
       "kind": "trajectory",
-      "file": "public/data/voyager1.bin",
-      "source": "JPL NAIF Voyager 1 SPK (vgr1.merged + vgr1.x2100)",
-      "url": "https://naif.jpl.nasa.gov/pub/naif/VOYAGER/kernels/spk/",
+      "file": "public/data/missions/*.bin",
+      "source": "JPL Horizons spacecraft ephemerides",
+      "url": "https://ssd.jpl.nasa.gov/horizons/",
       "licence": "Public domain (U.S. Government work, NASA/JPL-Caltech)",
-      "attribution": "JPL NAIF — Voyager 1 reconstructed + predicted trajectory",
+      "attribution": "JPL Horizons — Voyager 1/2, New Horizons, Parker Solar Probe, Juno, Cassini, JWST",
       "retrieved": "2026-08-12",
-      "notes": "P3.5. Baked by tools/bake_voyager.py via SPICE (spiceypy): 1060 samples 1977-2099, barycentric ecliptic-J2000, incl. Jupiter/Saturn flybys. 1.01 AU -> 430 AU."
+      "notes": "P3.5. Baked by tools/bake_missions.mjs from Horizons VECTORS (barycentric ecliptic-J2000, [tdb_s,x,y,z] m). One polyline per craft, rendered with an epoch marker."
     }
   ]
 }
