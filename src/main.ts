@@ -3,6 +3,7 @@ import { SimClient } from './sim/simClient';
 import { SOLAR_SYSTEM } from './data/bodies';
 import { dateToTdb, tdbToDate } from './core/time';
 import { readState, writeState } from './ui/urlState';
+import { createPorkchopPanel } from './ui/porkchop';
 import './style.css';
 
 const app = document.getElementById('app')!;
@@ -48,6 +49,7 @@ hud.innerHTML = `
   <label class="row"><span>INSERT (click+drag)</span><input type="checkbox" id="insert"></label>
   <div class="row"><button id="ghost">GHOST FOCUS</button><button id="clearp">CLEAR PARTICLES</button></div>
   <label class="row"><span>PERTURB ALL (N-body)</span><input type="checkbox" id="perturb"></label>
+  <div class="row"><button id="porkchop">PORKCHOP → MARS</button></div>
   <label class="row"><span>DEBUG</span><input type="checkbox" id="debug"></label>
   <div class="mono" id="readout"></div>
 `;
@@ -125,6 +127,9 @@ perturbChk.addEventListener('change', () => {
   sim.setPerturb(perturbChk.checked);
   nbodyBanner.style.display = perturbChk.checked ? 'block' : 'none';
 });
+
+const togglePorkchop = createPorkchopPanel(sim, () => curTdb, app);
+$<HTMLButtonElement>('#porkchop').addEventListener('click', togglePorkchop);
 
 flyChk.addEventListener('change', () => {
   if (flyChk.checked && insertChk.checked) { insertChk.checked = false; renderer.setInsertMode(false); }

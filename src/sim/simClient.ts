@@ -2,7 +2,7 @@
 // exposes a coarse API: read the latest state, change rate, jump time. It never
 // advances physics itself.
 
-import { createSharedState, readLatest, CTRL_TICK_US, FLOATS_PER_BODY, type SharedState, type SimFrame, type ParticleFrame } from './protocol';
+import { createSharedState, readLatest, CTRL_TICK_US, FLOATS_PER_BODY, type SharedState, type SimFrame, type ParticleFrame, type PorkchopResult } from './protocol';
 
 export class SimClient {
   private worker: Worker;
@@ -37,12 +37,14 @@ export class SimClient {
     }
     // Bodies use the SAB ring in isolated mode, but particles always arrive by
     // postMessage — so listen in both modes and branch on message type.
-    this.worker.onmessage = (e: MessageEvent<SimFrame | ParticleFrame>) => {
+    this.worker.onmessage = (e: MessageEvent<SimFrame | ParticleFrame | PorkchopResult>) => {
       const m = e.data;
       if (m.type === 'frame' && this.latest) {
         this.latest.set(m.state); this.latestTdb = m.tdb; this.latestTickUs = m.tickUs;
       } else if (m.type === 'particles') {
         this.particles = m.pos; this.particleCount = m.pos.length / 3;
+      } else if (m.type === 'porkchop') {
+        this.onPorkchop?.(m);
       }
     };
 
@@ -105,4 +107,11 @@ export class SimClient {
 
   /** Latest test-particle positions (count*3, barycentric ecliptic m). */
   particlePositions(): Float64Array { return this.particles; }
+
+  onPorkchop: ((r: PorkchopResult) => void) | null = null;
+
+  /** Request a porkchop grid (Earth->target) over a departure×arrival window. */
+  requestPorkchop(target: string, depStart: number, depStep: number, arrStart: number, arrStep: number, n: number): void {
+    this.worker.postMessage({ type: 'porkchop', target, depStart, depStep, arrStart, arrStep, n });
+  }
 }

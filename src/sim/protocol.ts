@@ -32,7 +32,15 @@ export type SimCommand =
   // clock (avoids the main<->worker time skew at high warp) and excludes it.
   | { type: 'ghostBody'; index: number }
   // Perturb-everything (P3): integrate the whole system off ephemeris rails.
-  | { type: 'perturb'; on: boolean };
+  | { type: 'perturb'; on: boolean }
+  // Porkchop grid (P3.5): Lambert Earth->target over a departure×arrival window.
+  | { type: 'porkchop'; target: string; depStart: number; depStep: number; arrStart: number; arrStep: number; n: number };
+
+// Worker -> main: computed porkchop grid (total heliocentric Δv, m/s) + optimum.
+export type PorkchopResult = {
+  type: 'porkchop'; n: number; m: number; dv: Float64Array; bestIdx: number; bestDv: number;
+  depStart: number; depStep: number; arrStart: number; arrStep: number;
+};
 
 // Worker -> main, no-SAB fallback only. One per sim tick; `state` is a copy
 // (nBodies*6 floats), cheap to structured-clone at ~630 B / 60 Hz.

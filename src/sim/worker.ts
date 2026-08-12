@@ -6,8 +6,9 @@
 import { eqjToEcl } from '../core/frames';
 import { De440 } from '../core/ephemeris/de440';
 import { IAS15 } from '../core/integrate/ias15';
+import { porkchop } from '../core/orbital/porkchop';
 import { SOLAR_SYSTEM } from '../data/bodies';
-import { publish, FLOATS_PER_BODY, CTRL_TICK_US, type SimCommand, type SimFrame, type ParticleFrame } from './protocol';
+import { publish, FLOATS_PER_BODY, CTRL_TICK_US, type SimCommand, type SimFrame, type ParticleFrame, type PorkchopResult } from './protocol';
 
 const TICK_MS = 16; // ~60 Hz sim
 const MAX_PARTICLES = 64;
@@ -240,6 +241,22 @@ self.onmessage = (e: MessageEvent<SimCommand>) => {
       else { perturbing = false; sysIas = null; }
       publishFrame();
       break;
+    case 'porkchop': {
+      if (!eph) break;
+      const { target, depStart, depStep, arrStart, arrStep, n } = msg;
+      const depT = Array.from({ length: n }, (_, i) => depStart + i * depStep);
+      const arrT = Array.from({ length: n }, (_, j) => arrStart + j * arrStep);
+      const tA = new Float64Array(6), tS = new Float64Array(6);
+      const helio = (id: string) => (t: number) => {
+        eph!.state(id, t, tA); eph!.state('Sun', t, tS); // heliocentric ICRF (frame-agnostic for Lambert)
+        return { r: new Float64Array([tA[0] - tS[0], tA[1] - tS[1], tA[2] - tS[2]]), v: new Float64Array([tA[3] - tS[3], tA[4] - tS[4], tA[5] - tS[5]]) };
+      };
+      const pc = porkchop(helio('Earth'), helio(target), GM_SUN, depT, arrT);
+      let best = Infinity, bi = -1;
+      for (let k = 0; k < pc.dvTotal.length; k++) { const v = pc.dvTotal[k]; if (Number.isFinite(v) && v < best) { best = v; bi = k; } }
+      self.postMessage({ type: 'porkchop', n: pc.n, m: pc.m, dv: pc.dvTotal, bestIdx: bi, bestDv: best, depStart, depStep, arrStart, arrStep } as PorkchopResult);
+      break;
+    }
     case 'addParticle':
       addParticle(msg.x, msg.v, msg.exclude);
       publishParticles();
