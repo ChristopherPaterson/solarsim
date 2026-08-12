@@ -7,6 +7,10 @@
 // Bodies present as their true centre (Mercury/Venus/Earth/Moon), or as the
 // system barycentre where DE440s carries no centre (Mars ≈ centre to <1 m;
 // the giant planets differ from centre by their moons — tens–hundreds of km).
+// Accuracy is sub-metre vs Horizons at the carried quantity (see de440.test.ts).
+// ponytail: giant *body-centre* to sub-km would need the per-planet satellite
+// kernel segments (5,599)/(6,699)/(7,799)/(8,899) added to tools/bake_ephemeris.py;
+// deferred — the offset is invisible (~0.05–0.3″) at 5–30 AU.
 
 interface Seg { center: number; target: number; init: number; intlen: number; deg1: number; nrec: number; off: number; }
 interface Header { segs: Seg[]; bodies: Record<string, [number, number][]>; }

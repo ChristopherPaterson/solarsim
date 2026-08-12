@@ -1,14 +1,13 @@
-// Ephemeris regression harness (build plan §7 P2, §10). Compares the live
-// ephemeris against checked-in JPL Horizons reference vectors and fails on
-// drift. Fixtures are barycentric ICRF (equatorial J2000), km / km·s⁻¹.
+// Secondary ephemeris guard (build plan §7 P2, §10). The LIVE pipeline is the
+// baked DE440 evaluator, validated to sub-km against Horizons in de440.test.ts
+// (P2 acceptance met). This file keeps a coarse cross-check on astronomy-engine's
+// BaryState — the P0/P1 pipeline DE440 replaced — as an independent frame/unit
+// guard: a metres-for-km slip or an equatorial/ecliptic mix-up shows up here as
+// a >=1e6 km blow-out regardless of the primary path. Fixtures are barycentric
+// ICRF (equatorial J2000), km / km·s⁻¹.
 //
-// Two tolerances:
-//   NOW_TOL_KM    — loose, sized to the current astronomy-engine pipeline
-//                   (a few thousand km inner, ~4e5 km outer). Its job is to
-//                   catch gross frame/unit regressions (those are >=1e6 km).
-//   TARGET_TOL_KM — the P2 acceptance (1 km). Met only once the DE440 SPK bake
-//                   replaces astronomy-engine. Reported, not asserted, so
-//                   progress toward it is visible without failing CI today.
+//   NOW_TOL_KM — loose, sized to astronomy-engine's own accuracy (a few thousand
+//                km inner, ~4e5 km outer); catches only gross regressions.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -37,7 +36,7 @@ test('harness has fixtures across the support range', () => {
   assert.ok(years.size >= 3, 'fixtures should span several epochs');
 });
 
-test('live ephemeris matches Horizons within the current-pipeline tolerance', () => {
+test('astronomy-engine cross-check stays within its own accuracy (frame/unit guard)', () => {
   let worst = 0, worstWhich = '';
   for (const f of fx) {
     const r = ephemKm(f.body, f.jdtdb);
@@ -45,7 +44,7 @@ test('live ephemeris matches Horizons within the current-pipeline tolerance', ()
     if (err > worst) { worst = err; worstWhich = `${f.body} ${f.epoch}`; }
     assert.ok(err < NOW_TOL_KM, `${f.body} @ ${f.epoch}: ${err.toExponential(2)} km > ${NOW_TOL_KM} km`);
   }
-  console.log(`  ephemeris worst error ${worst.toExponential(2)} km (${worstWhich}); P2 target ${TARGET_TOL_KM} km needs the SPK bake`);
+  console.log(`  astronomy-engine worst ${worst.toExponential(2)} km (${worstWhich}); live DE440 path meets the ${TARGET_TOL_KM} km P2 bar — see de440.test.ts`);
 });
 
 test('a unit/frame regression would be caught (guard-rail sanity)', () => {

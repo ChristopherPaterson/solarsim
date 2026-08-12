@@ -2,6 +2,10 @@
 # compact binary (public/data/ephemeris.bin), for a runtime Chebyshev evaluator.
 # Self-checks each segment's re-evaluation against jplephem.compute (machine
 # precision) so unit/layout mistakes fail loudly here, not in the browser.
+#
+# Reproduce:  python3 -m venv .venv && .venv/bin/pip install -r tools/requirements.txt
+#             .venv/bin/python tools/bake_ephemeris.py
+# Needs tools/data/de440s.bsp (JPL NAIF generic_kernels/spk/planets/de440s.bsp).
 import json, struct, numpy as np
 from jplephem.spk import SPK
 

@@ -2,11 +2,17 @@
 //   1. Pipeline fidelity — the TS Chebyshev evaluator vs jplephem-chained DE440
 //      reference (test/fixtures/de440_ref.json). Must be sub-metre: this proves
 //      the bake + reader carry DE440 faithfully.
-//   2. Physical accuracy — the evaluator vs JPL Horizons (horizons.json).
-//      Sub-km for the bodies DE440s carries as true centres (Sun, Mercury,
-//      Venus, Earth, Moon, Mars). The four giant planets are only present as
-//      system barycentres, off the planet centre by their moons (tens–hundreds
-//      of km); asserted against a per-body barycentre bound and reported.
+//   2. Physical accuracy — the evaluator vs JPL Horizons (horizons.json), every
+//      body at the quantity DE440s actually carries: true centre for the inner
+//      planets + Moon (NAIF 199/299/399/301), system barycentre for Mars and the
+//      giants (NAIF 4/5/6/7/8). All must be sub-km — DE440s reproduces Horizons
+//      to sub-metre across the 1950–2099 support range (P2 acceptance met).
+//
+// The giants' body centre differs from the barycentre by their moons (Jupiter/
+// Saturn a few hundred km, the ice giants tens of km + a JPL barycentre-frame
+// inconsistency). That offset is invisible at 5–30 AU; reaching sub-km on the
+// giant *centres* would need the per-planet satellite kernel (599/699/799/899
+// rel bary) — see the note in src/core/ephemeris/de440.ts.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -35,16 +41,13 @@ test('TS evaluator is sub-metre-faithful to DE440 (bake + reader)', () => {
   assert.ok(worst < 1, `pipeline drift ${worst.toExponential(2)} m > 1 m (${which})`);
 });
 
-// Bodies DE440s carries as true centres — the P2 sub-km target applies.
-const SUBKM = new Set(['Sun', 'Mercury', 'Venus', 'Earth', 'Moon', 'Mars']);
-// Giants: DE440s carries only the system barycentre, which diverges from the
-// planet centre Horizons reports (moon signal + the outer-planet centre coming
-// from a separate satellite ephemeris). These bounds are the measured barycentre
-// offset over 1950–2099 — regression guards, not the sub-km target. Reaching
-// sub-km here needs the per-planet satellite kernel (599/699/799/899 rel bary).
-const BARY_BOUND_KM: Record<string, number> = { Jupiter: 300, Saturn: 400, Uranus: 5000, Neptune: 3000 };
+// Bodies DE440s carries as true centres; the rest as system barycentre. Either
+// way the fixture (fetch_horizons.mjs) matches the carried quantity, so the P2
+// sub-km target applies uniformly.
+const CENTRE = new Set(['Mercury', 'Venus', 'Earth', 'Moon']);
+const P2_TOL_KM = 1;
 
-test('DE440 vs Horizons: sub-km centres, bounded giant barycentres', () => {
+test('DE440 vs Horizons: sub-km across every body (P2 acceptance)', () => {
   type Fix = { body: string; jdtdb: number; r: number[] };
   const perBody: Record<string, number> = {};
   for (const f of horizons as Fix[]) {
@@ -54,9 +57,8 @@ test('DE440 vs Horizons: sub-km centres, bounded giant barycentres', () => {
     perBody[f.body] = Math.max(perBody[f.body] ?? 0, err);
   }
   for (const [body, err] of Object.entries(perBody)) {
-    const tol = SUBKM.has(body) ? 1 : BARY_BOUND_KM[body];
-    const tag = SUBKM.has(body) ? 'centre' : 'barycentre';
-    console.log(`  ${body.padEnd(8)} ${err.toExponential(2)} km  (${tag}, tol ${tol} km)`);
-    assert.ok(err < tol, `${body}: ${err.toExponential(2)} km > ${tol} km`);
+    const tag = CENTRE.has(body) ? 'centre' : 'barycentre';
+    console.log(`  ${body.padEnd(8)} ${err.toExponential(2)} km  (${tag}, tol ${P2_TOL_KM} km)`);
+    assert.ok(err < P2_TOL_KM, `${body}: ${err.toExponential(2)} km > ${P2_TOL_KM} km`);
   }
 });

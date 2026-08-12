@@ -7,10 +7,16 @@
 
 import { writeFileSync } from 'node:fs';
 
+// DE440s carries true centres for the inner bodies + Moon (compared at their
+// body centre, NAIF 199/299/399/301), and only the system BARYCENTRE for Mars
+// and the giants — so those are compared against the Horizons barycentre (NAIF
+// 4/5/6/7/8), the DE440-native quantity the bake reproduces exactly. The body
+// centre differs from the barycentre by the planet's moons (Jupiter/Saturn a few
+// hundred km, invisible at 5-10 AU); reaching sub-km on the giant *centres* needs
+// the per-planet satellite kernel (599/699/799/899 rel bary) — a later upgrade.
 const BODIES = [
-  ['Mercury', 199], ['Venus', 299], ['Earth', 399], ['Mars', 499],
-  ['Jupiter', 599], ['Saturn', 699], ['Uranus', 799], ['Neptune', 899],
-  ['Moon', 301],
+  ['Mercury', 199], ['Venus', 299], ['Earth', 399], ['Moon', 301],
+  ['Mars', 4], ['Jupiter', 5], ['Saturn', 6], ['Uranus', 7], ['Neptune', 8],
 ];
 // Epochs across the 1900-2100 support range (interpreted by Horizons as TDB).
 const EPOCHS = ['1950-Jan-01 00:00', '2000-Jan-01 12:00', '2026-Aug-11 00:00', '2099-Dec-31 00:00'];
