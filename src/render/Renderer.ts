@@ -26,6 +26,7 @@ import type { Body } from '../core/types';
 import { sampleOrbitPathRV } from '../core/orbital/elements';
 import { eqjToEcl } from '../core/frames';
 import { IAS15 } from '../core/integrate/ias15';
+import { Vessel } from '../core/spacecraft/vessel';
 import { StarField } from './StarField';
 
 const GM_SUN = 1.32712440018e20;
@@ -144,6 +145,12 @@ export class Renderer {
   private voyagerMarker!: THREE.Points;
   private voyagerAbs: Float64Array | null = null; // n*3 barycentric ecliptic m
   private voyagerTimes: Float64Array | null = null; // n (TDB s)
+  // Vessel on rails (P3.5): heliocentric Kepler plan, offset by the Sun each frame.
+  private vessel: Vessel | null = null;
+  private vesselMarker!: THREE.Points;
+  private vesselLine!: THREE.Line;
+  private nodeMarkers!: THREE.Points;
+  private static VTRAJ = 320;
   private placeAbs = new THREE.Vector3(); // placement point (absolute)
   private insVel: [number, number, number] = [0, 0, 0];
   private dragging = false;
@@ -193,7 +200,67 @@ export class Renderer {
     );
     this.voyagerMarker.frustumCulled = false; this.voyagerMarker.visible = false;
     this.scene.add(this.voyagerMarker);
+    // Vessel: planned trajectory line, craft marker, maneuver-node markers.
+    this.vesselLine = new THREE.Line(
+      new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(Renderer.VTRAJ * 3), 3)),
+      new THREE.LineBasicMaterial({ color: 0x66ddff, transparent: true, opacity: 0.9 }));
+    this.vesselLine.frustumCulled = false; this.vesselLine.visible = false; this.scene.add(this.vesselLine);
+    this.vesselMarker = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3)),
+      new THREE.PointsMaterial({ color: 0xffffff, size: 10, sizeAttenuation: false, depthTest: false }));
+    this.vesselMarker.frustumCulled = false; this.vesselMarker.visible = false; this.scene.add(this.vesselMarker);
+    this.nodeMarkers = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(8 * 3), 3)),
+      new THREE.PointsMaterial({ color: 0xffcc33, size: 11, sizeAttenuation: false, depthTest: false }));
+    this.nodeMarkers.frustumCulled = false; this.nodeMarkers.visible = false; this.scene.add(this.nodeMarkers);
     window.addEventListener('resize', () => this.onResize());
+  }
+
+  setVessel(v: Vessel | null): void {
+    this.vessel = v;
+    const on = v !== null;
+    this.vesselLine.visible = on; this.vesselMarker.visible = on; this.nodeMarkers.visible = on;
+  }
+
+  private vr = new Float64Array(3); private vv = new Float64Array(3);
+  private vtraj = new Float64Array(Renderer.VTRAJ * 3);
+  private periodAt(r: Float64Array, v: Float64Array): number {
+    const rn = Math.hypot(r[0], r[1], r[2]), v2 = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+    const a = 1 / (2 / rn - v2 / GM_SUN);
+    return a > 0 ? 2 * Math.PI * Math.sqrt((a * a * a) / GM_SUN) : Infinity;
+  }
+
+  // Draw the vessel plan: heliocentric samples offset by (Sun - focus).
+  private updateVessel(tdb: number): void {
+    const ves = this.vessel;
+    if (!ves || !this.vesselLine.visible) return;
+    const ox = this.sunAbs.x - this.focusAbs.x, oy = this.sunAbs.y - this.focusAbs.y, oz = this.sunAbs.z - this.focusAbs.z;
+    ves.stateAt(tdb, this.vr, this.vv);
+    const mk = this.vesselMarker.geometry.getAttribute('position') as THREE.BufferAttribute;
+    (mk.array as Float32Array)[0] = this.vr[0] + ox; (mk.array as Float32Array)[1] = this.vr[1] + oy; (mk.array as Float32Array)[2] = this.vr[2] + oz;
+    mk.needsUpdate = true;
+    // Span: ~1.15 current periods, extended past the last node's post-burn orbit.
+    let per = this.periodAt(this.vr, this.vv);
+    if (!Number.isFinite(per)) per = 10 * 365.25 * 86400; // unbound: fixed 10 yr window
+    let tEnd = tdb + per * 1.15;
+    if (ves.nodes.length) {
+      const last = Math.max(...ves.nodes.map((n) => n.t));
+      ves.stateAt(last + 1, this.vr, this.vv);
+      let pp = this.periodAt(this.vr, this.vv); if (!Number.isFinite(pp)) pp = 10 * 365.25 * 86400;
+      tEnd = Math.max(tEnd, last + pp * 1.15);
+    }
+    const N = Renderer.VTRAJ;
+    ves.sampleTrajectory(tdb, tEnd, N, this.vtraj);
+    const pos = this.vesselLine.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const arr = pos.array as Float32Array;
+    for (let i = 0; i < N; i++) { arr[i * 3] = this.vtraj[i * 3] + ox; arr[i * 3 + 1] = this.vtraj[i * 3 + 1] + oy; arr[i * 3 + 2] = this.vtraj[i * 3 + 2] + oz; }
+    pos.needsUpdate = true;
+    // Node markers.
+    const nm = this.nodeMarkers.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const na = nm.array as Float32Array;
+    ves.nodes.slice(0, 8).forEach((node, k) => {
+      ves.stateAt(node.t, this.vr, this.vv);
+      na[k * 3] = this.vr[0] + ox; na[k * 3 + 1] = this.vr[1] + oy; na[k * 3 + 2] = this.vr[2] + oz;
+    });
+    nm.needsUpdate = true; this.nodeMarkers.geometry.setDrawRange(0, Math.min(8, ves.nodes.length));
   }
 
   /** Load Voyager 1's baked trajectory ([tdb_s, x, y, z] per sample, m). */
@@ -525,6 +592,7 @@ export class Renderer {
     }
     this.updateOrbits(state);
     this.updateVoyager(tdb);
+    this.updateVessel(tdb);
     if (this.starField) this.starField.update(this.camera);
 
     const now = performance.now();

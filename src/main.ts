@@ -4,6 +4,7 @@ import { SOLAR_SYSTEM } from './data/bodies';
 import { dateToTdb, tdbToDate } from './core/time';
 import { readState, writeState } from './ui/urlState';
 import { createPorkchopPanel } from './ui/porkchop';
+import { createVesselPanel } from './ui/vessel';
 import './style.css';
 
 const app = document.getElementById('app')!;
@@ -51,6 +52,7 @@ hud.innerHTML = `
   <div class="row"><button id="ghost">GHOST FOCUS</button><button id="clearp">CLEAR PARTICLES</button></div>
   <label class="row"><span>PERTURB ALL (N-body)</span><input type="checkbox" id="perturb"></label>
   <div class="row"><button id="porkchop">PORKCHOP → MARS</button></div>
+  <div class="row"><button id="vessel">+ VESSEL (from Earth)</button></div>
   <label class="row"><span>VOYAGER 1</span><input type="checkbox" id="voyager" checked></label>
   <label class="row"><span>DEBUG</span><input type="checkbox" id="debug"></label>
   <div class="mono" id="readout"></div>
@@ -135,6 +137,10 @@ $<HTMLButtonElement>('#porkchop').addEventListener('click', togglePorkchop);
 
 const voyagerChk = $<HTMLInputElement>('#voyager');
 voyagerChk.addEventListener('change', () => renderer.setVoyagerVisible(voyagerChk.checked));
+
+const sunIdx = bodyIds.indexOf('Sun'), earthIdx = bodyIds.indexOf('Earth');
+const addVessel = createVesselPanel(renderer, app, () => ({ state, sunIdx, earthIdx, tdb: curTdb }));
+$<HTMLButtonElement>('#vessel').addEventListener('click', addVessel);
 
 flyChk.addEventListener('change', () => {
   if (flyChk.checked && insertChk.checked) { insertChk.checked = false; renderer.setInsertMode(false); }
