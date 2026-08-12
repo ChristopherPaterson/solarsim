@@ -128,6 +128,15 @@ hud.innerHTML = `
 `;
 app.appendChild(hud);
 
+// Mobile/touch: CSS media queries turn the console into a slide-in drawer that
+// starts closed so the map is full-screen. This button opens it; tapping the map
+// closes it. On desktop the button is hidden and the drawer styles don't apply.
+const menuBtn = document.createElement('button');
+menuBtn.className = 'menu-btn'; menuBtn.textContent = '☰'; menuBtn.setAttribute('aria-label', 'Toggle controls');
+menuBtn.addEventListener('click', () => hud.classList.toggle('open'));
+app.appendChild(menuBtn);
+renderer.domElement.addEventListener('pointerdown', () => hud.classList.remove('open'));
+
 const $ = <T extends HTMLElement>(sel: string) => hud.querySelector<T>(sel)!;
 const dateInput = $<HTMLInputElement>('#date');
 const rateInput = $<HTMLInputElement>('#rate');
@@ -253,12 +262,10 @@ $<HTMLDivElement>('#satlegend').innerHTML = SAT_CATS
 const satTip = document.createElement('div');
 satTip.style.cssText = 'position:fixed;pointer-events:none;background:rgba(10,14,20,0.92);border:1px solid #2a3442;color:#cfe;font:10px ui-monospace,monospace;padding:2px 7px;border-radius:3px;display:none;z-index:20';
 app.appendChild(satTip);
-let hoverName: string | null = null;
 let downX = 0, downY = 0, dragging = false;
 window.addEventListener('mousemove', (e) => {
   if (dragging) return; // no hover picking/highlight thrash while orbiting the camera
   const hit = renderer.pickSatellite(e.clientX, e.clientY);
-  hoverName = hit?.name ?? null;
   if (hit) {
     satTip.innerHTML = `${hit.name}<span style="color:#7a8">  ↗ wiki</span>`;
     satTip.style.left = `${e.clientX + 13}px`; satTip.style.top = `${e.clientY + 10}px`; satTip.style.display = 'block';
@@ -274,7 +281,9 @@ renderer.domElement.addEventListener('pointerdown', (e) => {
 window.addEventListener('pointerup', () => { dragging = false; });
 renderer.domElement.addEventListener('click', (e) => {
   if (Math.hypot(e.clientX - downX, e.clientY - downY) > 5) return; // was a drag
-  if (hoverName) window.open(`https://en.wikipedia.org/wiki/Special:Search?search=${encodeURIComponent(hoverName.replace(/\s+/g, ' ').trim())}`, '_blank', 'noopener');
+  // Pick at the click point (works for touch taps, which have no prior hover).
+  const hit = renderer.pickSatellite(e.clientX, e.clientY);
+  if (hit) window.open(`https://en.wikipedia.org/wiki/Special:Search?search=${encodeURIComponent(hit.name.replace(/\s+/g, ' ').trim())}`, '_blank', 'noopener');
 });
 
 const soiChk = $<HTMLInputElement>('#soi');

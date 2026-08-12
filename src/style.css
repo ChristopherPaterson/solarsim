@@ -80,6 +80,34 @@ canvas { display: block; }
 .hud .sat-legend .sw { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--grey); text-transform: none; letter-spacing: 0.02em; }
 .hud .sat-legend .sw i { width: 9px; height: 9px; flex: none; }
 
+/* ---- Mobile / touch: slide-in drawer + bigger tap targets ------------------ */
+.menu-btn { display: none; }
+@media (pointer: coarse), (max-width: 700px) {
+  .hud {
+    top: 0; left: 0; width: min(86vw, 330px); max-height: 100vh; padding-top: 56px;
+    font-size: 13px; clip-path: none; border-left: none; border-top: none;
+    transform: translateX(-108%); transition: transform 0.22s ease; will-change: transform;
+  }
+  .hud.open { transform: translateX(0); box-shadow: 0 0 44px rgba(0, 0, 0, 0.7); }
+
+  .menu-btn {
+    display: block; position: fixed; top: 10px; left: 10px; z-index: 30;
+    width: 44px; height: 44px; font-size: 20px; line-height: 1; padding: 0;
+    background: var(--panel); color: var(--amber); border: 1px solid var(--rule); cursor: pointer;
+    clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));
+  }
+  .menu-btn:active { background: rgba(255, 171, 61, 0.18); }
+
+  /* fat-finger friendly controls */
+  .hud input[type='checkbox'] { width: 20px; height: 20px; }
+  .hud input[type='checkbox']:checked::after { inset: 5px; }
+  .hud button { padding: 8px 13px; }
+  .hud select, .hud input[type='datetime-local'] { padding: 6px 7px; font-size: 13px; max-width: 180px; }
+  .hud input[type='range'] { height: 22px; }
+  .hud .sec > summary { padding: 10px 0 9px; }
+  .hud .sat-legend .sw { font-size: 12px; }
+}
+
 /* Notice / fallback */
 .notice { max-width: 620px; margin: 12vh auto; padding: 28px 32px; color: var(--amber); font: 15px/1.6 ui-monospace, monospace; border: 1px solid var(--rule); background: var(--panel); }
 .notice h1 { text-transform: uppercase; letter-spacing: 0.14em; font-size: 22px; }
