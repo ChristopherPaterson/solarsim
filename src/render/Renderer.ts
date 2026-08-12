@@ -79,6 +79,8 @@ function atmosphereMaterial(colour: number): THREE.MeshBasicNodeMaterial {
 // Bodies with a bundled equirectangular albedo map; everything else = flat colour.
 const TEXTURED = new Set(['Sun', 'Mercury', 'Venus', 'Earth', 'Moon', 'Mars', 'Jupiter', 'Saturn', 'Uranus', 'Neptune',
   'Pluto', 'Ganymede', 'Callisto', 'Europa', 'Phobos', 'Deimos']);
+// Bodies with an 8K detail map loaded on close approach (swapped for the 2K base).
+const HIRES: Record<string, string> = { Earth: 'earth_hi.jpg', Mars: 'mars_hi.jpg' };
 
 /** Mesh +Y aligned to a body's spin pole (IAU RA/Dec in deg, ICRF equatorial). */
 // IAU body-fixed basis in the ecliptic scene frame. axisP = spin pole. axisQ =
@@ -162,6 +164,8 @@ export class Renderer {
   readonly camera: THREE.PerspectiveCamera;
   readonly controls: OrbitControls;
   readonly bodies: RenderBody[] = [];
+  // Texture LOD: swap a body's 2K base map for an 8K detail map on close approach.
+  private lod: { idx: number; mat: THREE.MeshStandardMaterial; base: THREE.Texture; hiUrl: string; hi: THREE.Texture | null; on: boolean }[] = [];
   private sunLight: THREE.PointLight;
   private unit = new THREE.SphereGeometry(1, 64, 32);
   private sunIdx = 0;
@@ -1022,6 +1026,7 @@ export class Renderer {
         : new THREE.MeshStandardMaterial(map ? { map, roughness: 1, metalness: 0 } : { color: col, roughness: 1, metalness: 0 });
       const mesh = new THREE.Mesh(this.unit, mat);
       mesh.frustumCulled = true;
+      if (map && HIRES[def.id]) this.lod.push({ idx: i, mat: mat as THREE.MeshStandardMaterial, base: map, hiUrl: HIRES[def.id], hi: null, on: false });
       const { P, Q, E } = iauBasis(def.rotation.poleRA, def.rotation.poleDec); // axial tilt + node ref
       this.scene.add(mesh);
 
@@ -1168,6 +1173,22 @@ export class Renderer {
         this.qC.setFromUnitVectors(NEG_Y, this.vC.normalize()); // cone axis -> anti-sun
         c.tail.quaternion.copy(this.qC);
         c.tail.scale.setScalar(tailLen);
+      }
+    }
+  }
+
+  // Texture LOD: on close approach, lazy-load the 8K detail map and swap it in for
+  // the 2K base (with hysteresis so a body at the threshold doesn't flicker).
+  private updateLod(): void {
+    for (const L of this.lod) {
+      const body = this.bodies[L.idx];
+      const Rd = body.mesh.scale.x || body.def.radius;
+      const camDist = this.camera.position.distanceTo(body.mesh.position);
+      if (!L.on && camDist < Rd * 14) {
+        if (!L.hi) L.hi = loadTex(L.hiUrl); // fetch once, then cached
+        L.mat.map = L.hi; L.mat.needsUpdate = true; L.on = true;
+      } else if (L.on && camDist > Rd * 22) {
+        L.mat.map = L.base; L.mat.needsUpdate = true; L.on = false;
       }
     }
   }
@@ -1427,6 +1448,7 @@ export class Renderer {
     if (this.post) this.post.render();
     else this.renderer.render(this.scene, this.camera);
     this.updateComets();
+    this.updateLod();
     this.updateLabels();
     this.updateCities();
   }
