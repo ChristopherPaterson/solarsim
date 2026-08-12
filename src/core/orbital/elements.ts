@@ -54,6 +54,28 @@ export function rvToElements(r: Float64Array, v: Float64Array, mu: number): Elem
   return { a, e, i, raan, argp, nu };
 }
 
+/** Classical elements -> state vector (r, v) about a body of parameter mu.
+ *  Handles every conic (elliptic e<1, parabolic e=1, hyperbolic e>1). Writes
+ *  position into rOut and velocity into vOut (Curtis Alg. 4.5). */
+export function elementsToRv(el: Elements, mu: number, rOut: Float64Array, vOut: Float64Array): void {
+  const { e, i, raan: O, argp: w, nu } = el;
+  // Semi-latus rectum p from a (finite) or, for the parabolic edge, direct.
+  const p = Number.isFinite(el.a) ? el.a * (1 - e * e) : 0; // parabolic caller must pass p via a=inf carefully
+  const cnu = Math.cos(nu), snu = Math.sin(nu);
+  const rp = p / (1 + e * cnu); // perifocal radius
+  // Perifocal position/velocity (z=0 plane).
+  const px = rp * cnu, py = rp * snu;
+  const vc = Math.sqrt(mu / p);
+  const vpx = -vc * snu, vpy = vc * (e + cnu);
+  // 3-1-3 rotation perifocal -> inertial (Curtis 4.49); third column unused (z_pf=0).
+  const cO = Math.cos(O), sO = Math.sin(O), ci = Math.cos(i), si = Math.sin(i), cw = Math.cos(w), sw = Math.sin(w);
+  const R11 = cO * cw - sO * sw * ci, R12 = -cO * sw - sO * cw * ci;
+  const R21 = sO * cw + cO * sw * ci, R22 = -sO * sw + cO * cw * ci;
+  const R31 = sw * si, R32 = cw * si;
+  rOut[0] = R11 * px + R12 * py; rOut[1] = R21 * px + R22 * py; rOut[2] = R31 * px + R32 * py;
+  vOut[0] = R11 * vpx + R12 * vpy; vOut[1] = R21 * vpx + R22 * vpy; vOut[2] = R31 * vpx + R32 * vpy;
+}
+
 /**
  * Sample the orbit ellipse uniformly in eccentric anomaly straight from a
  * state vector, using the orbit's own basis (eccentricity vector for the
