@@ -19,10 +19,11 @@ export function createTransferPanel(renderer: Renderer, app: HTMLElement, ctx: (
   const bodyIds = ctx().bodyIds;
   const opts = bodyIds.map((id, i) => `<option value="${i}">${id.toUpperCase()}</option>`).join('');
   const panel = document.createElement('div');
-  panel.className = 'transfer';
-  panel.style.cssText = 'position:fixed;right:12px;top:12px;width:290px;background:rgba(8,12,18,0.92);border:1px solid #2a3442;border-radius:6px;padding:10px;font:11px ui-monospace,monospace;color:#cfe;display:none;z-index:9';
+  panel.className = 'transfer panel';
+  // top:256px so it sits below the tactical scope (232px) instead of over it.
+  panel.style.cssText = 'left:auto;bottom:auto;right:12px;top:256px;width:min(290px,calc(100vw - 24px));display:none';
   panel.innerHTML = `
-    <div style="display:flex;justify-content:space-between;margin-bottom:6px"><b style="letter-spacing:1px">TRANSFER PLANNER</b><span id="t-close" style="cursor:pointer;opacity:0.6">✕</span></div>
+    <div class="panel-head"><b>TRANSFER PLANNER</b><span class="panel-x" id="t-close">✕</span></div>
     <div class="row" style="gap:6px"><label>FROM <select id="t-from">${opts}</select></label><label>TO <select id="t-to">${opts}</select></label></div>
     <label class="row" style="margin-top:4px">DRIVE <select id="t-mode"><option value="lambert">LAMBERT (chemical)</option><option value="torch">TORCH (sci-fi)</option></select></label>
     <label style="display:block;margin:6px 0"><span id="t-plabel">TOF ×Hohmann</span> <span id="t-pval"></span><input id="t-param" type="range" min="0.6" max="1.8" step="0.02" value="1" style="width:100%"></label>
@@ -88,7 +89,7 @@ export function createTransferPanel(renderer: Renderer, app: HTMLElement, ctx: (
     }
   }
   for (const el of [from, to, param]) el.addEventListener('input', plan);
-  mode.addEventListener('change', () => { param.value = mode.value === 'torch' ? '1' : '1'; plan(); });
+  mode.addEventListener('change', () => { param.value = '1'; plan(); });
 
   return function toggle(): void {
     const showing = panel.style.display !== 'none';

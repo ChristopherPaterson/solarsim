@@ -104,7 +104,7 @@ hud.innerHTML = `
   <details class="sec" open><summary>VIEW</summary><div class="body">
     <label>FOCUS <select id="focus">${focusOpts}</select></label>
     <label>FRAME <select id="frame"><option value="-1">INERTIAL</option>${SOLAR_SYSTEM.map((b, i) => (i > 0 && !b.parent ? `<option value="${i}">⟳ ${b.id.toUpperCase()}</option>` : '')).join('')}</select></label>
-    <label>SCALE <input type="range" id="scale" min="0" max="4" step="0.01"></label>
+    <label>SCALE <span id="scalelabel" class="sub"></span> <input type="range" id="scale" min="0" max="4" step="0.01"></label>
     <label class="row"><span>TRUE SCALE</span><input type="checkbox" id="truescale"></label>
     <label class="row"><span>LABELS</span><input type="checkbox" id="labels" checked></label>
     <label class="row"><span>TACTICAL</span><input type="checkbox" id="tactical" checked></label>
@@ -225,15 +225,21 @@ playPause.addEventListener('click', () => {
 $<HTMLButtonElement>('#now').addEventListener('click', () => {
   const t = dateToTdb(new Date()); sim.jumpTo(t); syncDatePicker(new Date()); persist(t);
 });
+const scaleLabel = $<HTMLSpanElement>('#scalelabel');
+function updateScaleLabel() {
+  const x = trueScale.checked ? 1 : Math.pow(10, parseFloat(scaleInput.value));
+  scaleLabel.textContent = trueScale.checked ? 'TRUE' : (x < 1000 ? `×${x.toFixed(0)}` : `×${x.toExponential(0)}`);
+}
 scaleInput.addEventListener('input', () => {
   exaggeration = Math.pow(10, parseFloat(scaleInput.value));
-  trueScale.checked = false; persist();
+  trueScale.checked = false; updateScaleLabel(); persist();
 });
 trueScale.addEventListener('change', () => {
   if (trueScale.checked) exaggeration = 1;
   else exaggeration = Math.pow(10, parseFloat(scaleInput.value));
-  persist();
+  updateScaleLabel(); persist();
 });
+updateScaleLabel();
 // Dolly the camera to frame the focus body (pinned at the origin). Distance
 // scales with the body's *displayed* radius so it fills a similar fraction of
 // the view whether true-scale or exaggerated.
@@ -248,7 +254,9 @@ function frameFocus() {
   renderer.controls.update();
 }
 focusSel.addEventListener('change', () => { focusIdx = parseInt(focusSel.value); frameFocus(); persist(); });
-$<HTMLSelectElement>('#frame').addEventListener('change', (e) => renderer.setFrame(parseInt((e.target as HTMLSelectElement).value)));
+const frameSel = $<HTMLSelectElement>('#frame');
+frameSel.value = '-1'; // frame isn't persisted; keep the dropdown matching the actual inertial state on reload
+frameSel.addEventListener('change', (e) => renderer.setFrame(parseInt((e.target as HTMLSelectElement).value)));
 
 // P3 insert: click the ecliptic to place a body, drag to set its velocity (a
 // live two-body preview ellipse shows the orbit), release to commit to the sim.
@@ -259,15 +267,18 @@ const flyChk = $<HTMLInputElement>('#fly');
 const observerChk = $<HTMLInputElement>('#observer');
 const obsRow = $<HTMLDivElement>('#obsrow');
 const obsLat = $<HTMLInputElement>('#obslat'), obsLon = $<HTMLInputElement>('#obslon');
+let obsPriorTrueScale = true; // remember scale state so leaving observer restores it
 observerChk.addEventListener('change', () => {
   obsRow.style.display = observerChk.checked ? 'flex' : 'none';
   if (observerChk.checked) {
     if (flyChk.checked) { flyChk.checked = false; renderer.setFlyMode(false); }
+    obsPriorTrueScale = trueScale.checked;
     if (!trueScale.checked) { trueScale.checked = true; trueScale.dispatchEvent(new Event('change')); }
     focusBody(earthIdx);
     renderer.setObserver(parseFloat(obsLat.value) || 0, parseFloat(obsLon.value) || 0);
   } else {
     renderer.setObserver(null);
+    if (trueScale.checked !== obsPriorTrueScale) { trueScale.checked = obsPriorTrueScale; trueScale.dispatchEvent(new Event('change')); }
     focusBody(earthIdx); // reframe from the surface back to an orbit view of Earth
   }
 });
@@ -392,6 +403,15 @@ $<HTMLButtonElement>('#transfer').addEventListener('click', toggleTransfer);
 
 const toggleDvLadder = createDvLadderPanel(app);
 $<HTMLButtonElement>('#dvladder').addEventListener('click', toggleDvLadder);
+
+// Reflect each tool panel's open/closed state on its button (open via the button,
+// close via the panel's ✕ — a style-attribute observer catches both paths).
+for (const [btnSel, panelSel] of [['#vessel', '.vessel'], ['#transfer', '.transfer'], ['#porkchop', '.porkchop'], ['#dvladder', '.dvladder']] as const) {
+  const btn = $<HTMLButtonElement>(btnSel), panel = app.querySelector<HTMLElement>(panelSel);
+  if (!btn || !panel) continue;
+  const sync = () => btn.classList.toggle('active', panel.style.display !== 'none');
+  new MutationObserver(sync).observe(panel, { attributes: true, attributeFilter: ['style'] });
+}
 
 flyChk.addEventListener('change', () => {
   if (flyChk.checked && insertChk.checked) { insertChk.checked = false; renderer.setInsertMode(false); }

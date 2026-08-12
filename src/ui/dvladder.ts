@@ -22,9 +22,9 @@ const DRIVE_COL: Record<string, string> = {
 
 export function createDvLadderPanel(app: HTMLElement): () => void {
   const panel = document.createElement('div');
-  panel.className = 'dvladder';
-  panel.style.cssText = 'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:560px;background:rgba(8,12,18,0.96);border:1px solid #2a3442;border-radius:8px;padding:12px;font:11px ui-monospace,monospace;color:#cfe;display:none;z-index:11';
-  panel.innerHTML = `<div style="display:flex;justify-content:space-between;margin-bottom:6px"><b style="letter-spacing:1px">Δv LADDER · reach at mass ratio ${RATIO}</b><span id="d-close" style="cursor:pointer;opacity:0.6">✕</span></div>
+  panel.className = 'dvladder panel';
+  panel.style.cssText = 'left:50%;top:50%;bottom:auto;transform:translate(-50%,-50%);width:min(560px,calc(100vw - 24px));display:none;z-index:11';
+  panel.innerHTML = `<div class="panel-head"><b>Δv LADDER · reach at mass ratio ${RATIO}</b><span class="panel-x" id="d-close">✕</span></div>
     <canvas id="d-canvas" width="536" height="330" style="width:100%"></canvas>`;
   app.appendChild(panel);
   panel.querySelector('#d-close')!.addEventListener('click', () => (panel.style.display = 'none'));

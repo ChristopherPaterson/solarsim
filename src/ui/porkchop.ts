@@ -31,12 +31,10 @@ const fmtDate = (tdb: number): string => tdbToDate(tdb as never).toISOString().s
 
 export function createPorkchopPanel(sim: SimClient, getTdb: () => number, app: HTMLElement): () => void {
   const panel = document.createElement('div');
-  panel.className = 'porkchop';
-  panel.style.cssText = 'position:fixed;right:12px;bottom:12px;width:360px;background:rgba(8,12,18,0.92);border:1px solid #2a3442;border-radius:6px;padding:10px;font:11px ui-monospace,monospace;color:#cfe;display:none;z-index:9';
+  panel.className = 'porkchop panel';
+  panel.style.cssText = 'left:auto;right:12px;bottom:12px;width:min(360px,calc(100vw - 24px));display:none';
   panel.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-      <b style="letter-spacing:1px">PORKCHOP · EARTH → MARS</b><span id="pc-close" style="cursor:pointer;opacity:0.6">✕</span>
-    </div>
+    <div class="panel-head"><b>PORKCHOP · EARTH → MARS</b><span class="panel-x" id="pc-close">✕</span></div>
     <canvas id="pc-canvas" width="320" height="320" style="width:100%;image-rendering:auto;border:1px solid #223"></canvas>
     <div style="display:flex;justify-content:space-between;opacity:0.7;margin-top:2px"><span id="pc-depmin"></span><span>departure →</span><span id="pc-depmax"></span></div>
     <div id="pc-readout" style="margin-top:6px;color:#8fd">computing…</div>`;
