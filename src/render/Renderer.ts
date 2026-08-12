@@ -125,6 +125,9 @@ export class Renderer {
   private lastUpdate = performance.now();
   private earthIdx = -1;
   private earthClouds: THREE.Mesh | null = null;
+  // Spheres of influence (P3.5): r_SOI = a·(m/M)^(2/5), drawn true-scale per planet.
+  private soi: { idx: number; mesh: THREE.Mesh; k: number }[] = [];
+  private soiVisible = false;
   // Test particles (P3): one Points cloud for markers + a ring-buffer trail line
   // each. Trails hold absolute ecliptic positions, re-offset by focus per frame.
   private particlePoints!: THREE.Points;
@@ -643,6 +646,29 @@ export class Renderer {
       this.scene.add(line);
       this.orbits.push({ idx: i, centerIdx, mu, line, scratch: new Float64Array(ORBIT_SEGMENTS * 3) });
     });
+    // Spheres of influence: planets only (not the Sun or the Moon). k = (m/M)^(2/5),
+    // so r_SOI = k · (planet's distance from the Sun) — computed live in update().
+    const gmSun = defs[this.sunIdx].gm, soiGeom = new THREE.SphereGeometry(1, 24, 16);
+    defs.forEach((def, i) => {
+      if (i === this.sunIdx || def.parent) return; // skip Sun + satellites (Moon)
+      const mesh = new THREE.Mesh(soiGeom, new THREE.MeshBasicMaterial({ color: 0x4a90ff, wireframe: true, transparent: true, opacity: 0.12, depthWrite: false }));
+      mesh.frustumCulled = false; mesh.visible = false; this.scene.add(mesh);
+      this.soi.push({ idx: i, mesh, k: Math.pow(def.gm / gmSun, 0.4) });
+    });
+  }
+
+  setSoiVisible(on: boolean): void { this.soiVisible = on; for (const s of this.soi) s.mesh.visible = on; }
+
+  // Position + size each planet's SOI sphere (true scale) from live positions.
+  private updateSoi(state: Float64Array): void {
+    if (!this.soiVisible) return;
+    const s = this.sunIdx * 6;
+    for (const so of this.soi) {
+      const b = so.idx * 6;
+      const dist = Math.hypot(state[b] - state[s], state[b + 1] - state[s + 1], state[b + 2] - state[s + 2]);
+      so.mesh.position.set(state[b] - this.focusAbs.x, state[b + 1] - this.focusAbs.y, state[b + 2] - this.focusAbs.z);
+      so.mesh.scale.setScalar(dist * so.k);
+    }
   }
 
   private updateOrbits(state: Float64Array): void {
@@ -703,6 +729,7 @@ export class Renderer {
       this.earthClouds.quaternion.copy(this.spin);
     }
     this.updateOrbits(state);
+    this.updateSoi(state);
     this.updateVoyager(tdb);
     this.updateVessel(tdb);
     this.updateTransfer();

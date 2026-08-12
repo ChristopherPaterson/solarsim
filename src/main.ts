@@ -58,6 +58,7 @@ hud.innerHTML = `
   <div class="row"><button id="transfer">TRANSFER PLANNER</button></div>
   <div class="row"><button id="dvladder">Δv LADDER</button></div>
   <label class="row"><span>VOYAGER 1</span><input type="checkbox" id="voyager" checked></label>
+  <label class="row"><span>SPHERES OF INFLUENCE</span><input type="checkbox" id="soi"></label>
   <label class="row"><span>DEBUG</span><input type="checkbox" id="debug"></label>
   <div class="mono" id="readout"></div>
 `;
@@ -141,6 +142,8 @@ $<HTMLButtonElement>('#porkchop').addEventListener('click', togglePorkchop);
 
 const voyagerChk = $<HTMLInputElement>('#voyager');
 voyagerChk.addEventListener('change', () => renderer.setVoyagerVisible(voyagerChk.checked));
+const soiChk = $<HTMLInputElement>('#soi');
+soiChk.addEventListener('change', () => renderer.setSoiVisible(soiChk.checked));
 
 const sunIdx = bodyIds.indexOf('Sun'), earthIdx = bodyIds.indexOf('Earth');
 const addVessel = createVesselPanel(renderer, app, () => ({ state, sunIdx, earthIdx, tdb: curTdb }));
