@@ -36,8 +36,8 @@ renderer.loadStars('data/stars.bin', tdbToDate(startTdb as never).getFullYear())
 
 // Real mission trajectories (JPL): [name, label, colour, on-by-default].
 const MISSIONS: [string, string, number, boolean][] = [
-  ['voyager1', 'Voyager 1', 0xff5aa0, true], ['voyager2', 'Voyager 2', 0xff8a5a, true],
-  ['newhorizons', 'New Horizons', 0x88ff88, true], ['parker', 'Parker Solar Probe', 0xffd24a, true],
+  ['voyager1', 'Voyager 1', 0xff5aa0, false], ['voyager2', 'Voyager 2', 0xff8a5a, false],
+  ['newhorizons', 'New Horizons', 0x88ff88, false], ['parker', 'Parker Solar Probe', 0xffd24a, false],
   ['juno', 'Juno', 0x9a7bff, false], ['cassini', 'Cassini', 0x7affc0, false], ['jwst', 'JWST', 0xffffff, false],
 ];
 for (const [name, , color, on] of MISSIONS) {
@@ -67,7 +67,7 @@ hud.innerHTML = `
   <div class="row"><button id="vessel">+ VESSEL (from Earth)</button></div>
   <div class="row"><button id="transfer">TRANSFER PLANNER</button></div>
   <div class="row"><button id="dvladder">Δv LADDER</button></div>
-  <div id="missions" style="margin:2px 0"></div>
+  <details style="margin:2px 0"><summary style="cursor:pointer;user-select:none">MISSIONS &amp; PROBES</summary><div id="missions" style="padding-left:6px;margin-top:2px"></div></details>
   <label class="row"><span>SATELLITES (SGP4)</span><input type="checkbox" id="sats"></label>
   <label class="row"><span>SPHERES OF INFLUENCE</span><input type="checkbox" id="soi"></label>
   <label class="row"><span>DEBUG</span><input type="checkbox" id="debug"></label>
