@@ -106,6 +106,30 @@ canvas { display: block; }
   text-shadow: 0 0 6px rgba(0, 0, 0, 1), 0 0 3px rgba(0, 0, 0, 1);
 }
 
+/* ---- Shared floating tool panel (matches the HUD console language) --------- */
+.panel {
+  position: fixed; left: 12px; bottom: 12px; width: 300px; max-width: calc(100vw - 24px);
+  background: var(--panel); border: 1px solid var(--rule); padding: 10px 12px; z-index: 9;
+  font: 11px/1.5 ui-monospace, 'JetBrains Mono', monospace; color: #cfe1ee;
+  backdrop-filter: blur(3px); clip-path: polygon(0 0, 100% 0, 100% calc(100% - 11px), calc(100% - 11px) 100%, 0 100%);
+}
+.panel .panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.panel .panel-head b { color: var(--amber); letter-spacing: 0.11em; text-transform: uppercase; font-size: 12px; }
+.panel .panel-x { cursor: pointer; opacity: 0.6; padding: 1px 6px; }
+.panel .panel-x:hover { opacity: 1; color: var(--amber); }
+.panel .panel-rule { border-top: 1px solid var(--rule); margin: 9px 0 6px; padding-top: 6px; color: var(--amber); letter-spacing: 0.1em; text-transform: uppercase; font-weight: 700; font-size: 10px; }
+.panel .row { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin: 3px 0; }
+.panel .panel-readout { margin-top: 8px; color: #8fd6e0; line-height: 1.65; }
+.panel .panel-readout b { color: var(--amber); }
+.panel .tag { color: var(--grey); font-size: 9px; border: 1px solid var(--rule); padding: 0 4px; letter-spacing: 0.05em; }
+.panel .ok { color: #7cff9e; } .panel .bad { color: #ff6b6b; }
+.panel select, .panel input[type=number] { background: #0c1118; color: #cfe1ee; border: 1px solid var(--rule); font: inherit; padding: 1px 3px; }
+.panel .panel-x:focus-visible, .panel select:focus-visible, .panel input:focus-visible, .node-chip:focus-visible { outline: 1px solid var(--amber); outline-offset: 1px; }
+.node-chip { background: #0c1118; color: #cfe1ee; border: 1px solid var(--rule); font: 10px ui-monospace, monospace; padding: 1px 7px; margin-left: 3px; cursor: pointer; }
+.node-chip.on { background: var(--amber); color: #05070a; border-color: var(--amber); }
+.node-chip.add { color: #7cff9e; } .node-chip.del { color: #ff6b6b; }
+.node-chip:hover { border-color: var(--amber); }
+
 /* ---- Tactical scope (top-down ecliptic radar) ------------------------------ */
 .tactical { position: fixed; top: 12px; right: 12px; width: 232px; height: 232px; z-index: 8; }
 

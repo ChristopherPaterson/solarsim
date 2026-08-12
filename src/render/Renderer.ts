@@ -228,6 +228,8 @@ export class Renderer {
   private lp = new THREE.Vector3(); // scratch for label projection
   // Vessel on rails (P3.5): heliocentric Kepler plan, offset by the Sun each frame.
   private vessel: Vessel | null = null;
+  private vesselCenterIdx = 0; // body the vessel orbits (Sun for solar, Earth for LEO)
+  private editNode = 0;        // which maneuver node the gizmo + sliders edit
   private vesselMarker!: THREE.Points;
   private vesselLine!: THREE.Line;
   private nodeMarkers!: THREE.Points;
@@ -413,38 +415,43 @@ export class Renderer {
     }
   }
 
-  setVessel(v: Vessel | null): void {
-    this.vessel = v;
+  setVessel(v: Vessel | null, centerIdx = this.sunIdx): void {
+    this.vessel = v; this.vesselCenterIdx = centerIdx; this.editNode = 0;
     const on = v !== null;
     this.vesselLine.visible = on; this.vesselMarker.visible = on; this.nodeMarkers.visible = on;
     for (const h of this.handles) h.visible = on;
   }
 
+  /** Which maneuver node the gizmo + sliders drive (multi-burn plans). */
+  setEditNode(i: number): void { this.editNode = i; }
+
   private vr = new Float64Array(3); private vv = new Float64Array(3);
   private vtraj = new Float64Array(Renderer.VTRAJ * 3);
-  private periodAt(r: Float64Array, v: Float64Array): number {
+  private periodAt(r: Float64Array, v: Float64Array, mu: number): number {
     const rn = Math.hypot(r[0], r[1], r[2]), v2 = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
-    const a = 1 / (2 / rn - v2 / GM_SUN);
-    return a > 0 ? 2 * Math.PI * Math.sqrt((a * a * a) / GM_SUN) : Infinity;
+    const a = 1 / (2 / rn - v2 / mu);
+    return a > 0 ? 2 * Math.PI * Math.sqrt((a * a * a) / mu) : Infinity;
   }
 
-  // Draw the vessel plan: heliocentric samples offset by (Sun - focus).
+  // Draw the vessel plan: centre-relative samples offset by (centre - focus) =
+  // the centre body's scene position, so LEO plans track Earth and solar plans the Sun.
   private updateVessel(tdb: number): void {
     const ves = this.vessel;
     if (!ves || !this.vesselLine.visible) return;
-    const ox = this.sunAbs.x - this.focusAbs.x, oy = this.sunAbs.y - this.focusAbs.y, oz = this.sunAbs.z - this.focusAbs.z;
+    const c = this.bodies[this.vesselCenterIdx].mesh.position;
+    const ox = c.x, oy = c.y, oz = c.z;
     ves.stateAt(tdb, this.vr, this.vv);
     const mk = this.vesselMarker.geometry.getAttribute('position') as THREE.BufferAttribute;
     (mk.array as Float32Array)[0] = this.vr[0] + ox; (mk.array as Float32Array)[1] = this.vr[1] + oy; (mk.array as Float32Array)[2] = this.vr[2] + oz;
     mk.needsUpdate = true;
     // Span: ~1.15 current periods, extended past the last node's post-burn orbit.
-    let per = this.periodAt(this.vr, this.vv);
+    let per = this.periodAt(this.vr, this.vv, ves.mu);
     if (!Number.isFinite(per)) per = 10 * 365.25 * 86400; // unbound: fixed 10 yr window
     let tEnd = tdb + per * 1.15;
     if (ves.nodes.length) {
       const last = Math.max(...ves.nodes.map((n) => n.t));
       ves.stateAt(last + 1, this.vr, this.vv);
-      let pp = this.periodAt(this.vr, this.vv); if (!Number.isFinite(pp)) pp = 10 * 365.25 * 86400;
+      let pp = this.periodAt(this.vr, this.vv, ves.mu); if (!Number.isFinite(pp)) pp = 10 * 365.25 * 86400;
       tEnd = Math.max(tEnd, last + pp * 1.15);
     }
     const N = Renderer.VTRAJ;
@@ -465,7 +472,7 @@ export class Renderer {
     // Gizmo handles on the editable node (nodes[0]). Position = node + axis*(L + dv/K),
     // L screen-scaled so handles stay grabbable and roughly constant on screen.
     if (ves.nodes.length && this.gizmoAxis < 0) {
-      const node = ves.nodes[0];
+      const node = ves.nodes[Math.min(this.editNode, ves.nodes.length - 1)];
       ves.stateAt(node.t, this.vr, this.vv); // pre-burn state -> basis
       this.gizmoNode.set(this.vr[0] + ox, this.vr[1] + oy, this.vr[2] + oz);
       const { P, N, R } = rtnBasis(this.vr, this.vv);
@@ -507,7 +514,7 @@ export class Renderer {
     const s = (b * ee - d) / denom; // distance along the axis from the node
     let dv = (s - this.gizmoL) / (this.gizmoL / 5000);
     dv = Math.max(-8000, Math.min(8000, dv));
-    const node = this.vessel.nodes[0];
+    const node = this.vessel.nodes[Math.min(this.editNode, this.vessel.nodes.length - 1)];
     if (this.gizmoAxis === 0) node.prograde = dv; else if (this.gizmoAxis === 1) node.normal = dv; else node.radial = dv;
     this.onNodeDrag?.();
   }
