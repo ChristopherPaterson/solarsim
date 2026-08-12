@@ -82,7 +82,11 @@ export class StarField {
       size: 2.0, // px; >= the 1.5px scintillation floor
       sizeAttenuation: false,
       vertexColors: true,
-      transparent: true,
+      // NOT transparent: a transparent material renders in the late transparent
+      // pass (after opaque planets) so it additively bled over dark hemispheres —
+      // you could "see stars through" a planet's night side. As an opaque-queue
+      // object at renderOrder -1 it draws first and planets paint over it.
+      transparent: false,
       blending: THREE.AdditiveBlending,
       depthTest: false,
       depthWrite: false,
