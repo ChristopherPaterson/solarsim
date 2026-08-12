@@ -164,7 +164,7 @@ helpModal.innerHTML = `
       <span class="k">?</span><span>This help</span>
       <span class="k">Esc</span><span>Close search / dialog</span>
     </div>
-    <div class="modal-sub">MOUSE drag to orbit · scroll to zoom · click a satellite for its Wikipedia article</div>
+    <div class="modal-sub">MOUSE drag to orbit · scroll to zoom · double-click a body to focus it · click a satellite for its Wikipedia article</div>
     <div class="modal-sub">TOUCH one finger to orbit · pinch to zoom · tap ☰ for controls</div>
   </div>`;
 app.appendChild(helpBtn);
