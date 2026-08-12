@@ -1049,6 +1049,10 @@ export class Renderer {
       }
       if (b.def.id === 'Sun') this.sunLight.position.set(px, py, pz);
     }
+    // Stop the orbit camera at the focused body's surface (it's pinned at the
+    // origin) so you can approach closely but not dolly straight through it.
+    // scale.x is the equatorial (largest) radius, so this clears oblate bulges.
+    this.controls.minDistance = this.bodies[focusIdx].mesh.scale.x * 1.02;
     // Brighter sunlight at true/near-true scale, where planets are small and read
     // as dim; eased down as the size exaggeration grows.
     const logE = Math.log10(Math.max(1, exaggeration));
