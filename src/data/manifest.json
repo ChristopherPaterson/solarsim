@@ -33,6 +33,17 @@
       "attribution": "JPL Horizons — Voyager 1/2, New Horizons, Parker Solar Probe, Juno, Cassini, JWST",
       "retrieved": "2026-08-12",
       "notes": "P3.5. Baked by tools/bake_missions.mjs from Horizons VECTORS (barycentric ecliptic-J2000, [tdb_s,x,y,z] m). One polyline per craft, rendered with an epoch marker."
+    },
+    {
+      "id": "tle-snapshot",
+      "kind": "elements",
+      "file": "public/data/tles.txt",
+      "source": "CelesTrak GP element sets (stations, gps-ops, geo, starlink)",
+      "url": "https://celestrak.org/NORAD/elements/",
+      "licence": "Public / CelesTrak terms",
+      "attribution": "CelesTrak (Dr. T.S. Kelso) — NORAD two-line elements",
+      "retrieved": "2026-08-12",
+      "notes": "P3.5. SGP4-propagated at runtime (satellite.js) for the Earth-satellite layer. A snapshot; TLEs go stale, so accuracy degrades far from the 2026-08 epoch."
     }
   ]
 }

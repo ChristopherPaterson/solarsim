@@ -25,8 +25,10 @@ import { FlyControls } from 'three/addons/controls/FlyControls.js';
 import type { Body } from '../core/types';
 import { sampleOrbitPathRV } from '../core/orbital/elements';
 import { eqjToEcl } from '../core/frames';
+import * as satellite from 'satellite.js';
 import { IAS15 } from '../core/integrate/ias15';
 import { Vessel, rtnBasis } from '../core/spacecraft/vessel';
+import { tdbToDate } from '../core/time';
 import { StarField } from './StarField';
 
 const GM_SUN = 1.32712440018e20;
@@ -145,6 +147,10 @@ export class Renderer {
   private ndc = new THREE.Vector2();
   // Real mission trajectories (P3.5): baked polylines + a marker at the current epoch.
   private missions: { name: string; line: THREE.Line; marker: THREE.Points; abs: Float64Array; times: Float64Array }[] = [];
+  // Earth satellites (P3.5): SGP4 from TLEs, propagated + placed around Earth each frame.
+  private satrecs: satellite.SatRec[] = [];
+  private satPoints!: THREE.Points;
+  private satVisible = false;
   // Vessel on rails (P3.5): heliocentric Kepler plan, offset by the Sun each frame.
   private vessel: Vessel | null = null;
   private vesselMarker!: THREE.Points;
@@ -231,6 +237,10 @@ export class Renderer {
       new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(2 * 3), 3)),
       new THREE.PointsMaterial({ color: 0xffee88, size: 11, sizeAttenuation: false, depthTest: false }));
     this.transferMarks.frustumCulled = false; this.transferMarks.visible = false; this.scene.add(this.transferMarks);
+    this.satPoints = new THREE.Points(
+      new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(400 * 3), 3)),
+      new THREE.PointsMaterial({ color: 0x8fe9ff, size: 3, sizeAttenuation: false, depthTest: false, transparent: true }));
+    this.satPoints.frustumCulled = false; this.satPoints.visible = false; this.satPoints.geometry.setDrawRange(0, 0); this.scene.add(this.satPoints);
     const el = this.renderer.domElement;
     el.addEventListener('pointerdown', (e) => this.onGizmoDown(e));
     el.addEventListener('pointermove', (e) => this.onGizmoMove(e));
@@ -391,6 +401,41 @@ export class Renderer {
     if (m) { m.line.visible = on; m.marker.visible = on; }
   }
   missionNames(): string[] { return this.missions.map((m) => m.name); }
+
+  /** Load Earth-satellite TLEs (name / line1 / line2 triples) for SGP4 rendering. */
+  async loadSatellites(url: string): Promise<void> {
+    const lines = (await (await fetch(url)).text()).split(/\r?\n/);
+    for (let i = 0; i + 2 < lines.length; i++) {
+      if (lines[i + 1]?.startsWith('1 ') && lines[i + 2]?.startsWith('2 ')) {
+        try { this.satrecs.push(satellite.twoline2satrec(lines[i + 1], lines[i + 2])); } catch { /* skip bad TLE */ }
+        i += 2;
+      }
+    }
+  }
+  setSatellitesVisible(on: boolean): void { this.satVisible = on; this.satPoints.visible = on; }
+  satelliteCount(): number { return this.satrecs.length; }
+
+  // SGP4-propagate each satellite and place it around Earth (TEME ≈ equatorial
+  // J2000 -> ecliptic; + Earth's barycentric position). Only useful zoomed to Earth.
+  private updateSatellites(state: Float64Array, tdb: number): void {
+    if (!this.satVisible || this.earthIdx < 0) return;
+    const date = tdbToDate(tdb as never);
+    const ex = state[this.earthIdx * 6], ey = state[this.earthIdx * 6 + 1], ez = state[this.earthIdx * 6 + 2];
+    const fx = this.focusAbs.x, fy = this.focusAbs.y, fz = this.focusAbs.z;
+    const arr = this.satPoints.geometry.getAttribute('position').array as Float32Array;
+    let count = 0;
+    for (const rec of this.satrecs) {
+      const pv = satellite.propagate(rec, date);
+      const pos = pv?.position;
+      if (!pos || typeof pos === 'boolean') continue;
+      this.vr[0] = pos.x * 1000; this.vr[1] = pos.y * 1000; this.vr[2] = pos.z * 1000; // ECI m
+      eqjToEcl(this.vr, this.vr); // equatorial -> ecliptic
+      arr[count * 3] = this.vr[0] + ex - fx; arr[count * 3 + 1] = this.vr[1] + ey - fy; arr[count * 3 + 2] = this.vr[2] + ez - fz;
+      count++;
+    }
+    (this.satPoints.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
+    this.satPoints.geometry.setDrawRange(0, count);
+  }
 
   // Rewrite each visible mission's line offset by focus + place its epoch marker.
   private updateMissions(tdb: number): void {
@@ -721,6 +766,7 @@ export class Renderer {
     }
     this.updateOrbits(state);
     this.updateSoi(state);
+    this.updateSatellites(state, tdb);
     this.updateMissions(tdb);
     this.updateVessel(tdb);
     this.updateTransfer();

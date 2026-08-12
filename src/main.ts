@@ -43,6 +43,7 @@ const MISSIONS: [string, string, number, boolean][] = [
 for (const [name, , color, on] of MISSIONS) {
   renderer.loadMission(name, `data/missions/${name}.bin`, color).then(() => renderer.setMissionVisible(name, on)).catch((e) => console.warn(name, e));
 }
+renderer.loadSatellites('data/tles.txt').catch((e) => console.warn('tles:', e));
 
 const state = new Float64Array(nBodies * 6);
 let curTdb = startTdb;
@@ -67,6 +68,7 @@ hud.innerHTML = `
   <div class="row"><button id="transfer">TRANSFER PLANNER</button></div>
   <div class="row"><button id="dvladder">Δv LADDER</button></div>
   <div id="missions" style="margin:2px 0"></div>
+  <label class="row"><span>SATELLITES (SGP4)</span><input type="checkbox" id="sats"></label>
   <label class="row"><span>SPHERES OF INFLUENCE</span><input type="checkbox" id="soi"></label>
   <label class="row"><span>DEBUG</span><input type="checkbox" id="debug"></label>
   <div class="mono" id="readout"></div>
@@ -155,6 +157,8 @@ missionsBox.innerHTML = MISSIONS.map(([name, label, color, on]) =>
   `<label class="row" style="font-size:10px"><span style="color:#${color.toString(16).padStart(6, '0')}">${label}</span><input type="checkbox" data-m="${name}" ${on ? 'checked' : ''}></label>`).join('');
 missionsBox.querySelectorAll<HTMLInputElement>('input[data-m]').forEach((chk) =>
   chk.addEventListener('change', () => renderer.setMissionVisible(chk.dataset.m!, chk.checked)));
+const satChk = $<HTMLInputElement>('#sats');
+satChk.addEventListener('change', () => renderer.setSatellitesVisible(satChk.checked));
 const soiChk = $<HTMLInputElement>('#soi');
 soiChk.addEventListener('change', () => renderer.setSoiVisible(soiChk.checked));
 
