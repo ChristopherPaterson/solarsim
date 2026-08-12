@@ -27,9 +27,13 @@ let focusIdx = Math.max(0, bodyIds.indexOf(url.focus ?? 'Earth'));
 const urlScale = url.scale ?? 1; // default: real (true) scale
 let exaggeration = urlScale > 1 ? urlScale : 1500; // value used when TRUE SCALE is toggled off
 const startTdb = url.t ?? dateToTdb(new Date());
-let rate = url.rate ?? 0;
+// Time control: WARP factor (≥1× real time) plus a play/pause toggle. Loads
+// running at real time unless the URL says otherwise (rate 0 = paused).
+let paused = url.rate === 0;
+let warp = url.rate && url.rate >= 1 ? url.rate : 1;
+const rateNow = () => (paused ? 0 : warp);
 
-const sim = new SimClient(bodyIds, startTdb, rate);
+const sim = new SimClient(bodyIds, startTdb, rateNow());
 const renderer = new Renderer(app);
 await renderer.init();
 renderer.setBodies(SOLAR_SYSTEM);
@@ -67,8 +71,8 @@ hud.innerHTML = `
   <label>FOCUS <select id="focus">${focusOpts}</select></label>
   <label>FRAME <select id="frame"><option value="-1">INERTIAL</option>${SOLAR_SYSTEM.map((b, i) => (i > 0 && !b.parent ? `<option value="${i}">⟳ ${b.id.toUpperCase()}</option>` : '')).join('')}</select></label>
   <label>DATE <input type="datetime-local" id="date" step="1"></label>
-  <label>RATE <input type="range" id="rate" min="0" max="8" step="0.05"></label>
-  <div class="row"><span id="ratelabel">PAUSED</span><button id="now">NOW</button></div>
+  <label>WARP <input type="range" id="rate" min="0" max="8" step="0.05"></label>
+  <div class="row"><button id="playpause">⏸ PAUSE</button><span id="ratelabel">×1</span><button id="now">NOW</button></div>
   <label>SCALE <input type="range" id="scale" min="0" max="4" step="0.01"></label>
   <label class="row"><span>TRUE SCALE</span><input type="checkbox" id="truescale"></label>
   <label class="row"><span>FLY (WASD+drag)</span><input type="checkbox" id="fly"></label>
@@ -111,12 +115,13 @@ if (trueScale.checked) {
   renderer.camera.position.set(0, d * 0.375, d * 0.927);
   renderer.controls.update();
 }
-rateInput.value = rate === 0 ? '0' : String(Math.log10(rate));
-setRateLabel(rate);
-
-function setRateLabel(r: number) {
-  rateLabel.textContent = r === 0 ? 'PAUSED' : `×${r.toExponential(0)}`;
+const playPause = $<HTMLButtonElement>('#playpause');
+rateInput.value = String(Math.log10(warp));
+function updateTimeUI() {
+  playPause.textContent = paused ? '▶ PLAY' : '⏸ PAUSE';
+  rateLabel.textContent = warp < 1000 ? `×${warp.toFixed(0)}` : `×${warp.toExponential(0)}`;
 }
+updateTimeUI();
 function pad(n: number) { return String(n).padStart(2, '0'); }
 function syncDatePicker(d: Date) {
   dateInput.value = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
@@ -127,9 +132,12 @@ dateInput.addEventListener('change', () => {
   if (!isNaN(parsed.getTime())) { const t = dateToTdb(parsed); sim.jumpTo(t); renderer.starField?.applyEpoch(parsed.getFullYear()); persist(t); }
 });
 rateInput.addEventListener('input', () => {
-  const v = parseFloat(rateInput.value);
-  rate = v === 0 ? 0 : Math.pow(10, v);
-  sim.setRate(rate); setRateLabel(rate); persist();
+  warp = Math.pow(10, parseFloat(rateInput.value)); // slider min 0 -> ×1 (real time)
+  if (!paused) sim.setRate(warp);
+  updateTimeUI(); persist();
+});
+playPause.addEventListener('click', () => {
+  paused = !paused; sim.setRate(rateNow()); updateTimeUI(); persist();
 });
 $<HTMLButtonElement>('#now').addEventListener('click', () => {
   const t = dateToTdb(new Date()); sim.jumpTo(t); syncDatePicker(new Date()); persist(t);
@@ -225,7 +233,7 @@ window.addEventListener('keydown', (e) => {
 });
 
 function persist(t = curTdb) {
-  writeState({ t, focus: bodyIds[focusIdx], rate, scale: trueScale.checked ? 1 : exaggeration });
+  writeState({ t, focus: bodyIds[focusIdx], rate: rateNow(), scale: trueScale.checked ? 1 : exaggeration });
 }
 
 // --- loop -------------------------------------------------------------------

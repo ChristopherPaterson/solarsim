@@ -57,10 +57,10 @@ const bodyTexture = (id: string): THREE.Texture => loadTex(`${id.toLowerCase()}.
 function atmosphereMaterial(colour: number): THREE.MeshBasicNodeMaterial {
   const c = new THREE.Color(colour);
   const view = cameraPosition.sub(positionWorld).normalize();
-  const rim = float(1).sub(normalWorld.dot(view).abs()).pow(2.6);
+  const rim = float(1).sub(normalWorld.dot(view).abs()).pow(3.4); // tighter falloff
   const mat = new THREE.MeshBasicNodeMaterial({ transparent: true, side: THREE.BackSide, depthWrite: false, blending: THREE.AdditiveBlending });
   mat.colorNode = vec3(c.r, c.g, c.b);
-  mat.opacityNode = rim.mul(0.9);
+  mat.opacityNode = rim.mul(0.45); // softer glow
   return mat;
 }
 // Bodies with a bundled equirectangular albedo map; everything else = flat colour.
