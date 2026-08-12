@@ -73,6 +73,8 @@ const COMETS: [string, number, number, number, number, number, string, number, n
   ['67P/Churyumov-Gerasimenko', 1.243, 0.641, 7.04, 50.19, 12.78, '2021-11-02T00:00:00Z', 2.0e3, 0xbfe8ff],
   ['C/1995 O1 (Hale-Bopp)', 0.914, 0.995, 89.43, 282.47, 130.59, '1997-04-01T00:00:00Z', 3.0e4, 0xd8f0ff],
   ['109P/Swift-Tuttle', 0.9595, 0.9632, 113.45, 139.38, 152.98, '1992-12-11T00:00:00Z', 1.3e4, 0xbfe8ff],
+  ['C/2020 F3 (NEOWISE)', 0.29478, 0.99918, 128.94, 61.01, 37.28, '2020-07-03T16:00:00Z', 2.5e3, 0xd8f0ff],
+  ['C/1996 B2 (Hyakutake)', 0.2302, 0.9998, 124.92, 188.05, 130.17, '1996-05-01T00:00:00Z', 2.3e3, 0xd8f0ff],
 ];
 function cometState(q: number, e: number, iDeg: number, OmDeg: number, wDeg: number, tpISO: string) {
   const a = (q * AU_M) / (1 - e);
