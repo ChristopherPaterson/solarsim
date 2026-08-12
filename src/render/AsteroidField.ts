@@ -4,10 +4,11 @@
 // heliocentric ecliptic-J2000, offset by the Sun each frame. Build plan §7 P4.
 
 import * as THREE from 'three/webgpu';
-import { attribute, uniform, float, vec3, sin, cos, sqrt, round } from 'three/tsl';
+import { attribute, uniform, float, vec3, sin, cos, sqrt, round, step, mix } from 'three/tsl';
 
 const GM_SUN = 1.32712440018e20;
 const TWO_PI = 6.283185307179586;
+const AU = 1.495978707e11;
 
 export class AsteroidField {
   readonly points: THREE.Points;
@@ -55,8 +56,12 @@ export class AsteroidField {
       R31.mul(xpf).add(R32.mul(ypf)),
     ).add(this.uSunOffset);
 
-    const mat = new THREE.PointsNodeMaterial({ color: 0xb2a793, transparent: true, opacity: 0.9, depthTest: true });
+    const mat = new THREE.PointsNodeMaterial({ transparent: true, opacity: 0.9, depthTest: true });
     mat.positionNode = pos;
+    // Colour by orbital family so the Jupiter Trojans (a ≈ 5.05–5.35 AU) stand out
+    // as two gold lobes against the tan main belt.
+    const isTrojan = step(float(5.0 * AU), aA).mul(step(aA, float(5.4 * AU)));
+    mat.colorNode = mix(vec3(0.70, 0.65, 0.55), vec3(1.0, 0.78, 0.28), isTrojan);
     mat.sizeNode = float(1.6); // fixed pixel size
     this.points = new THREE.Points(g, mat);
     this.points.frustumCulled = false;

@@ -180,6 +180,8 @@ export class Renderer {
   showOrbits = true;
   starField: StarField | null = null;
   private asteroids: AsteroidField | null = null;
+  private frameBodyIdx = -1; // co-rotating reference body, or -1 for inertial
+  private wp = new THREE.Vector3(); // scratch for world positions
   isWebGPU = false;
 
   constructor(container: HTMLElement) {
@@ -773,7 +775,17 @@ export class Renderer {
    * (x,y,z,vx,vy,vz). `focusIdx` selects the floating-origin anchor.
    * `exaggeration` scales displayed radius (1 = true scale).
    */
+  /** Co-rotate the view with body `idx` (Sun-centred), or -1 for the inertial frame. */
+  setFrame(idx: number): void { this.frameBodyIdx = idx; if (idx < 0) this.scene.rotation.z = 0; }
+
   update(state: Float64Array, focusIdx: number, exaggeration: number, tdb: number): void {
+    // A co-rotating frame is Sun-centred; the whole scene spins by the reference
+    // body's longitude so it (and anything sharing its period, e.g. Trojans) sits still.
+    if (this.frameBodyIdx >= 0) {
+      focusIdx = this.sunIdx;
+      const b = this.frameBodyIdx * 6, s = this.sunIdx * 6;
+      this.scene.rotation.z = -Math.atan2(state[b + 1] - state[s + 1], state[b] - state[s]);
+    }
     const fx = state[focusIdx * 6], fy = state[focusIdx * 6 + 1], fz = state[focusIdx * 6 + 2];
     this.focusAbs.set(fx, fy, fz);
     this.sunAbs.set(state[this.sunIdx * 6], state[this.sunIdx * 6 + 1], state[this.sunIdx * 6 + 2]);
@@ -851,9 +863,10 @@ export class Renderer {
     // Bracket near/far around the bodies actually in front of the camera, so
     // the depth buffer spends its precision where it is needed this frame.
     const camPos = this.camera.position;
+    this.scene.updateMatrixWorld(); // fold in any co-rotating-frame scene rotation
     let dmax = 0;
     for (const b of this.bodies) {
-      const d = camPos.distanceTo(b.mesh.position) + b.mesh.scale.x;
+      const d = camPos.distanceTo(b.mesh.getWorldPosition(this.wp)) + b.mesh.scale.x;
       if (d > dmax) dmax = d;
     }
     const camDist = camPos.length(); // distance to focus at origin

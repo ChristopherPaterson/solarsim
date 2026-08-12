@@ -57,6 +57,7 @@ hud.className = 'hud';
 hud.innerHTML = `
   <div class="row"><span class="badge" id="backend">…</span><span class="badge" id="fps">-- FPS</span></div>
   <label>FOCUS <select id="focus">${SOLAR_SYSTEM.map((b, i) => `<option value="${i}">${b.id.toUpperCase()}</option>`).join('')}</select></label>
+  <label>FRAME <select id="frame"><option value="-1">INERTIAL</option>${SOLAR_SYSTEM.map((b, i) => (i > 0 && !b.parent ? `<option value="${i}">⟳ ${b.id.toUpperCase()}</option>` : '')).join('')}</select></label>
   <label>DATE <input type="datetime-local" id="date" step="1"></label>
   <label>RATE <input type="range" id="rate" min="0" max="8" step="0.05"></label>
   <div class="row"><span id="ratelabel">PAUSED</span><button id="now">NOW</button></div>
@@ -135,6 +136,7 @@ trueScale.addEventListener('change', () => {
   persist();
 });
 focusSel.addEventListener('change', () => { focusIdx = parseInt(focusSel.value); persist(); });
+$<HTMLSelectElement>('#frame').addEventListener('change', (e) => renderer.setFrame(parseInt((e.target as HTMLSelectElement).value)));
 
 // P3 insert: click the ecliptic to place a body, drag to set its velocity (a
 // live two-body preview ellipse shows the orbit), release to commit to the sim.
