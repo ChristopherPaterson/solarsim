@@ -7,7 +7,7 @@ import { SOLAR_SYSTEM } from '../src/data/bodies';
 import { AU_M } from '../src/core/units';
 
 const gm = (id: string) => SOLAR_SYSTEM.find((b) => b.id === id)!.gm;
-const rSOI = (id: string, aAU: number) => aAU * AU_M * Math.pow(gm(id) / gm('Sun'), 0.4) / 1e6; // km ×10⁶
+const rSOI = (id: string, aAU: number) => aAU * AU_M * Math.pow(gm(id) / gm('Sun'), 0.4) / 1e9; // millions of km
 
 test('SOI radii match published values', () => {
   // (id, semi-major axis AU, published r_SOI in millions of km)
@@ -16,7 +16,7 @@ test('SOI radii match published values', () => {
   ];
   for (const [id, a, expected] of cases) {
     const r = rSOI(id, a);
-    console.log(`  ${id.padEnd(8)} r_SOI ${r.toFixed(2)}e6 km (published ${expected})`);
+    console.log(`  ${id.padEnd(8)} r_SOI ${r.toFixed(3)}e6 km (published ${expected})`);
     assert.ok(Math.abs(r - expected) / expected < 0.03, `${id}: ${r.toFixed(2)} vs ${expected} (>3%)`);
   }
 });
