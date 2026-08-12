@@ -18,7 +18,7 @@
 // Upgrade to render-target depth partitioning when compositing lands in P5.
 
 import * as THREE from 'three/webgpu';
-import { pass, texture, uniform, normalWorld, dot, smoothstep } from 'three/tsl';
+import { pass, texture, uniform, normalWorld, dot, smoothstep, positionWorld, cameraPosition, float, vec3 } from 'three/tsl';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { FlyControls } from 'three/addons/controls/FlyControls.js';
@@ -51,6 +51,18 @@ function loadTex(file: string): THREE.Texture {
   return t;
 }
 const bodyTexture = (id: string): THREE.Texture => loadTex(`${id.toLowerCase()}.jpg`);
+
+// Additive fresnel rim-glow shell — bright at the limb, transparent face-on, so
+// it reads as an atmosphere haloing the planet. Back side so it wraps the disc.
+function atmosphereMaterial(colour: number): THREE.MeshBasicNodeMaterial {
+  const c = new THREE.Color(colour);
+  const view = cameraPosition.sub(positionWorld).normalize();
+  const rim = float(1).sub(normalWorld.dot(view).abs()).pow(2.6);
+  const mat = new THREE.MeshBasicNodeMaterial({ transparent: true, side: THREE.BackSide, depthWrite: false, blending: THREE.AdditiveBlending });
+  mat.colorNode = vec3(c.r, c.g, c.b);
+  mat.opacityNode = rim.mul(0.9);
+  return mat;
+}
 // Bodies with a bundled equirectangular albedo map; everything else = flat colour.
 const TEXTURED = new Set(['Sun', 'Mercury', 'Venus', 'Earth', 'Moon', 'Mars', 'Jupiter', 'Saturn', 'Uranus', 'Neptune']);
 
@@ -680,6 +692,13 @@ export class Renderer {
       const pole = poleQuat(def.rotation.poleRA, def.rotation.poleDec); // axial tilt
       mesh.quaternion.copy(pole);
       this.scene.add(mesh);
+
+      if (def.atmosphere) {
+        // Halo shell, child of the body so it inherits its scale + orientation.
+        const atm = new THREE.Mesh(this.unit, atmosphereMaterial(def.atmosphere.colour));
+        atm.scale.setScalar(def.atmosphere.scale);
+        atm.frustumCulled = false; mesh.add(atm);
+      }
 
       if (def.id === 'Earth') {
         this.earthIdx = i;

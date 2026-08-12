@@ -21,6 +21,7 @@ export interface Body {
   radius: number; // m (equatorial / mean)
   flattening?: number; // polar oblateness (r_pol = r·(1−f)), for the giants
   triaxial?: [number, number, number]; // axis ratios vs `radius` for lumpy small moons
+  atmosphere?: { colour: number; scale: number }; // fresnel rim-glow halo (shell = radius·scale)
 
   j2?: number;
   rotation: { period: number; poleRA: number; poleDec: number; primeMeridian: number };

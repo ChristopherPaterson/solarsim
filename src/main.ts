@@ -54,9 +54,17 @@ let curTdb = startTdb;
 // --- HUD --------------------------------------------------------------------
 const hud = document.createElement('div');
 hud.className = 'hud';
+// FOCUS options: planets top-level, their moons nested in a labelled optgroup.
+const focusOpts = SOLAR_SYSTEM.map((b, i) => {
+  if (b.parent) return '';
+  const moons = SOLAR_SYSTEM.map((m, j) => [m, j] as const).filter(([m]) => m.parent === b.id);
+  const group = moons.length ? `<optgroup label="${b.id.toUpperCase()} MOONS">${moons.map(([m, j]) => `<option value="${j}">&nbsp;&nbsp;↳ ${m.id.toUpperCase()}</option>`).join('')}</optgroup>` : '';
+  return `<option value="${i}">${b.id.toUpperCase()}</option>${group}`;
+}).join('');
+
 hud.innerHTML = `
   <div class="row"><span class="badge" id="backend">…</span><span class="badge" id="fps">-- FPS</span></div>
-  <label>FOCUS <select id="focus">${SOLAR_SYSTEM.map((b, i) => `<option value="${i}">${b.id.toUpperCase()}</option>`).join('')}</select></label>
+  <label>FOCUS <select id="focus">${focusOpts}</select></label>
   <label>FRAME <select id="frame"><option value="-1">INERTIAL</option>${SOLAR_SYSTEM.map((b, i) => (i > 0 && !b.parent ? `<option value="${i}">⟳ ${b.id.toUpperCase()}</option>` : '')).join('')}</select></label>
   <label>DATE <input type="datetime-local" id="date" step="1"></label>
   <label>RATE <input type="range" id="rate" min="0" max="8" step="0.05"></label>
