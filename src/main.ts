@@ -49,7 +49,18 @@ for (const [name, , color, on] of MISSIONS) {
   renderer.loadMission(name, `data/missions/${name}.bin`, color).then(() => renderer.setMissionVisible(name, on)).catch((e) => console.warn(name, e));
 }
 renderer.loadAsteroids('data/asteroids.bin').catch((e) => console.warn('asteroids:', e));
-renderer.loadSatelliteGroup('mixed', 'data/tles.txt', 0x8fe9ff, 3).catch((e) => console.warn('tles:', e));
+// Colour-coded satellite categories (name, file, colour, dot size, legend label).
+const SAT_CATS: [string, string, number, number, string][] = [
+  ['stations', 'stations', 0xffffff, 5, 'Space stations'],
+  ['navigation', 'navigation', 0x54e08a, 3, 'Navigation · GPS/GNSS'],
+  ['communications', 'communications', 0xffab3d, 3, 'Communications'],
+  ['weather', 'weather', 0x5fbcff, 3, 'Weather · Earth obs'],
+  ['science', 'science', 0xc98bff, 4, 'Science'],
+  ['other', 'other', 0x8a97a5, 2, 'Other'],
+];
+for (const [name, file, colour, size] of SAT_CATS) {
+  renderer.loadSatelliteGroup(name, `data/sats/${file}.txt`, colour, size).catch((e) => console.warn(name, e));
+}
 renderer.loadSatelliteGroup('starlink', 'data/starlink.txt', 0xbfe0ff, 2).catch((e) => console.warn('starlink:', e));
 
 const state = new Float64Array(nBodies * 6);
@@ -87,8 +98,9 @@ hud.innerHTML = `
     <label class="row"><span>ASTEROIDS · 100K</span><input type="checkbox" id="asteroids"></label>
     <label class="row"><span class="sub">↳ COUNT</span><input type="range" id="astcount" min="2000" max="100000" step="2000" value="100000" style="width:120px"></label>
     <label class="row"><span>SATELLITES · SGP4</span><input type="checkbox" id="sats"></label>
-    <label class="row"><span>STARLINK · ~11K</span><input type="checkbox" id="starlink"></label>
+    <div class="sat-legend" id="satlegend"></div>
     <label class="row"><span class="sub">↳ ORBIT TRACKS</span><input type="checkbox" id="satorbits"></label>
+    <label class="row"><span>STARLINK · ~11K</span><input type="checkbox" id="starlink"></label>
     <label class="row"><span>SPHERES OF INFLUENCE</span><input type="checkbox" id="soi"></label>
     <details class="sec"><summary>MISSIONS &amp; PROBES</summary><div class="body" id="missions"></div></details>
   </div></details>
@@ -208,34 +220,40 @@ astChk.addEventListener('change', () => renderer.setAsteroidsVisible(astChk.chec
 $<HTMLInputElement>('#astcount').addEventListener('input', (e) => renderer.setAsteroidCount(+(e.target as HTMLInputElement).value));
 
 const satChk = $<HTMLInputElement>('#sats');
-satChk.addEventListener('change', () => renderer.setSatGroupVisible('mixed', satChk.checked));
+satChk.addEventListener('change', () => { for (const [name] of SAT_CATS) renderer.setSatGroupVisible(name, satChk.checked); });
 const starlinkChk = $<HTMLInputElement>('#starlink');
 starlinkChk.addEventListener('change', () => renderer.setSatGroupVisible('starlink', starlinkChk.checked));
 const satOrbChk = $<HTMLInputElement>('#satorbits');
 satOrbChk.addEventListener('change', () => renderer.setSatOrbitsVisible(satOrbChk.checked));
 
-// Hover tooltip: name the satellite nearest the cursor (across visible groups).
-// Click opens Wikipedia — Special:Search resolves to the article if one exists,
-// else lands on results (so obscure debris just searches, notable sats jump straight in).
+// Colour legend for the categories.
+$<HTMLDivElement>('#satlegend').innerHTML = SAT_CATS
+  .map(([, , colour, , label]) => `<span class="sw"><i style="background:#${colour.toString(16).padStart(6, '0')}"></i>${label}</span>`)
+  .join('');
+
+// Hover: name the satellite nearest the cursor, highlight its orbit ring, fade
+// the rest. Click opens Wikipedia — Special:Search resolves to the article if one
+// exists, else lands on results (obscure debris just searches, notable sats jump in).
 const satTip = document.createElement('div');
 satTip.style.cssText = 'position:fixed;pointer-events:none;background:rgba(10,14,20,0.92);border:1px solid #2a3442;color:#cfe;font:10px ui-monospace,monospace;padding:2px 7px;border-radius:3px;display:none;z-index:20';
 app.appendChild(satTip);
-let hoverSat: string | null = null;
+let hoverName: string | null = null;
 window.addEventListener('mousemove', (e) => {
-  hoverSat = renderer.pickSatellite(e.clientX, e.clientY);
-  if (hoverSat) {
-    satTip.innerHTML = `${hoverSat}<span style="color:#7a8">  ↗ wiki</span>`;
+  const hit = renderer.pickSatellite(e.clientX, e.clientY);
+  hoverName = hit?.name ?? null;
+  if (hit) {
+    satTip.innerHTML = `${hit.name}<span style="color:#7a8">  ↗ wiki</span>`;
     satTip.style.left = `${e.clientX + 13}px`; satTip.style.top = `${e.clientY + 10}px`; satTip.style.display = 'block';
     renderer.domElement.style.cursor = 'pointer';
   } else { satTip.style.display = 'none'; renderer.domElement.style.cursor = ''; }
+  if (satOrbChk.checked) renderer.highlightSatOrbit(hit?.key ?? null);
 });
 // Distinguish a click from an orbit drag: only open wiki if the pointer barely moved.
 let downX = 0, downY = 0;
 renderer.domElement.addEventListener('pointerdown', (e) => { downX = e.clientX; downY = e.clientY; });
 renderer.domElement.addEventListener('click', (e) => {
   if (Math.hypot(e.clientX - downX, e.clientY - downY) > 5) return; // was a drag
-  const n = renderer.pickSatellite(e.clientX, e.clientY);
-  if (n) window.open(`https://en.wikipedia.org/wiki/Special:Search?search=${encodeURIComponent(n.replace(/\s+/g, ' ').trim())}`, '_blank', 'noopener');
+  if (hoverName) window.open(`https://en.wikipedia.org/wiki/Special:Search?search=${encodeURIComponent(hoverName.replace(/\s+/g, ' ').trim())}`, '_blank', 'noopener');
 });
 
 const soiChk = $<HTMLInputElement>('#soi');

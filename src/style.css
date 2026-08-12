@@ -75,6 +75,11 @@ canvas { display: block; }
 .hud input[type='checkbox']:checked { border-color: var(--amber); background: var(--amber); box-shadow: 0 0 6px rgba(255, 171, 61, 0.55); }
 .hud input[type='checkbox']:checked::after { content: ''; position: absolute; inset: 3px; background: var(--bg); }
 
+/* Satellite category colour legend */
+.hud .sat-legend { display: flex; flex-direction: column; gap: 2px; padding: 1px 0 2px 8px; }
+.hud .sat-legend .sw { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--grey); text-transform: none; letter-spacing: 0.02em; }
+.hud .sat-legend .sw i { width: 9px; height: 9px; flex: none; }
+
 /* Notice / fallback */
 .notice { max-width: 620px; margin: 12vh auto; padding: 28px 32px; color: var(--amber); font: 15px/1.6 ui-monospace, monospace; border: 1px solid var(--rule); background: var(--panel); }
 .notice h1 { text-transform: uppercase; letter-spacing: 0.14em; font-size: 22px; }

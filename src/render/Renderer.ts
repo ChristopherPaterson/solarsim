@@ -168,6 +168,9 @@ export class Renderer {
   private pickV = new THREE.Vector3();
   private satFrame = 0;
   private satOrbits!: THREE.LineSegments; // Earth-relative orbit tracks (ECI ecliptic)
+  private orbitBase!: Float32Array; // per-vertex category colour (full strength)
+  private orbitRanges: { key: string; start: number; end: number }[] = []; // vertex range per drawn ring
+  private orbitHi: string | null = null; // currently highlighted ring key
   private lastTdb = 0;
   readonly domElement!: HTMLCanvasElement; // canvas, for input handlers in main
   // Vessel on rails (P3.5): heliocentric Kepler plan, offset by the Sun each frame.
@@ -260,9 +263,13 @@ export class Renderer {
       new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(2 * 3), 3)),
       new THREE.PointsMaterial({ color: 0xffee88, size: 11, sizeAttenuation: false, depthTest: false }));
     this.transferMarks.frustumCulled = false; this.transferMarks.visible = false; this.scene.add(this.transferMarks);
-    this.satOrbits = new THREE.LineSegments(
-      new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(60000 * 3), 3)),
-      new THREE.LineBasicMaterial({ color: 0x4a90c0, transparent: true, opacity: 0.4, depthTest: false }));
+    {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(60000 * 3), 3));
+      g.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(60000 * 3), 3));
+      this.orbitBase = new Float32Array(60000 * 3); // per-vertex category colour at full strength
+      this.satOrbits = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.55, depthTest: false }));
+    }
     this.satOrbits.frustumCulled = false; this.satOrbits.visible = false; this.satOrbits.geometry.setDrawRange(0, 0); this.scene.add(this.satOrbits);
     const el = this.renderer.domElement;
     el.addEventListener('pointerdown', (e) => this.onGizmoDown(e));
@@ -448,11 +455,12 @@ export class Renderer {
   }
   satGroupCount(name: string): number { return this.satGroups.find((x) => x.name === name)?.satrecs.length ?? 0; }
 
-  /** Name of the satellite nearest the cursor (within ~12 px) across visible groups. */
-  pickSatellite(clientX: number, clientY: number): string | null {
+  /** Satellite nearest the cursor (within ~12 px) across visible groups. `key`
+   *  (group#index) identifies its orbit ring for hover-highlighting. */
+  pickSatellite(clientX: number, clientY: number): { name: string; key: string } | null {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const px = clientX - rect.left, py = clientY - rect.top;
-    let best = 12, name: string | null = null;
+    let best = 12; let hit: { name: string; key: string } | null = null;
     for (const g of this.satGroups) {
       if (!g.visible || !g.drawCount) continue;
       const arr = g.points.geometry.getAttribute('position').array as Float32Array;
@@ -460,10 +468,10 @@ export class Renderer {
         this.pickV.set(arr[i * 3], arr[i * 3 + 1], arr[i * 3 + 2]).project(this.camera);
         if (this.pickV.z >= 1) continue;
         const d = Math.hypot((this.pickV.x * 0.5 + 0.5) * rect.width - px, (-this.pickV.y * 0.5 + 0.5) * rect.height - py);
-        if (d < best) { best = d; name = g.names[g.drawIdx[i]]; }
+        if (d < best) { best = d; const si = g.drawIdx[i]; hit = { name: g.names[si], key: `${g.name}#${si}` }; }
       }
     }
-    return name;
+    return hit;
   }
 
   // SGP4-propagate each visible group and place it around Earth (TEME ≈ equatorial
@@ -509,12 +517,16 @@ export class Renderer {
     let v = 0; // vertex cursor
     const cap = Math.floor(arr.length / 3);
     const base = this.lastTdb;
+    this.orbitRanges = []; this.orbitHi = null;
+    const col = new THREE.Color();
     for (const g of this.satGroups) {
       if (!g.visible || g.satrecs.length > 2000) continue; // skip big constellations (starlink)
+      col.copy((g.points.material as THREE.PointsMaterial).color); // ring inherits the group's category colour
       for (let si = 0; si < g.satrecs.length; si++) {
         if (v / (SEG * 2) >= MAX_SATS) break;
         const rec = g.satrecs[si];
         const periodMin = (2 * Math.PI) / rec.no; // no = rad/min
+        const start = v;
         let prev: number[] | null = null;
         for (let k = 0; k <= SEG; k++) {
           const t = tdbToDate((base + (k / SEG) * periodMin * 60) as never);
@@ -525,15 +537,41 @@ export class Renderer {
           eqjToEcl(this.vr, this.vr);
           const cur = [this.vr[0], this.vr[1], this.vr[2]];
           if (prev && v + 2 <= cap) {
-            arr[v * 3] = prev[0]; arr[v * 3 + 1] = prev[1]; arr[v * 3 + 2] = prev[2]; v++;
-            arr[v * 3] = cur[0]; arr[v * 3 + 1] = cur[1]; arr[v * 3 + 2] = cur[2]; v++;
+            for (const p of [prev, cur]) {
+              arr[v * 3] = p[0]; arr[v * 3 + 1] = p[1]; arr[v * 3 + 2] = p[2];
+              this.orbitBase[v * 3] = col.r; this.orbitBase[v * 3 + 1] = col.g; this.orbitBase[v * 3 + 2] = col.b;
+              v++;
+            }
           }
           prev = cur;
         }
+        if (v > start) this.orbitRanges.push({ key: `${g.name}#${si}`, start, end: v });
       }
     }
     (this.satOrbits.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
     this.satOrbits.geometry.setDrawRange(0, v);
+    this.paintOrbits(null); // normal (un-highlighted) shading
+  }
+
+  // Rewrite the orbit colour buffer. null -> every ring at normal brightness;
+  // a key -> that ring bright, the rest dimmed (hover focus). Cheap: only runs
+  // when the hovered ring changes, not per frame.
+  highlightSatOrbit(key: string | null): void {
+    if (!this.satOrbits.visible || key === this.orbitHi) return;
+    this.orbitHi = key;
+    this.paintOrbits(key);
+  }
+
+  private paintOrbits(key: string | null): void {
+    const c = this.satOrbits.geometry.getAttribute('color').array as Float32Array;
+    const count = this.satOrbits.geometry.drawRange.count;
+    const k = key == null ? 0.7 : 0.1; // base scale: normal vs dimmed
+    for (let i = 0; i < count * 3; i++) c[i] = this.orbitBase[i] * k;
+    if (key != null) {
+      const r = this.orbitRanges.find((x) => x.key === key);
+      if (r) for (let i = r.start * 3; i < r.end * 3; i++) c[i] = Math.min(1, this.orbitBase[i] * 1.4);
+    }
+    (this.satOrbits.geometry.getAttribute('color') as THREE.BufferAttribute).needsUpdate = true;
   }
 
   // Rings are stored Earth-relative (ECI ecliptic); shift them to Earth each frame.
