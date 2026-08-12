@@ -5,6 +5,7 @@ import { dateToTdb, tdbToDate } from './core/time';
 import { readState, writeState } from './ui/urlState';
 import { createPorkchopPanel } from './ui/porkchop';
 import { createVesselPanel } from './ui/vessel';
+import { createTransferPanel } from './ui/transfer';
 import './style.css';
 
 const app = document.getElementById('app')!;
@@ -53,6 +54,7 @@ hud.innerHTML = `
   <label class="row"><span>PERTURB ALL (N-body)</span><input type="checkbox" id="perturb"></label>
   <div class="row"><button id="porkchop">PORKCHOP → MARS</button></div>
   <div class="row"><button id="vessel">+ VESSEL (from Earth)</button></div>
+  <div class="row"><button id="transfer">TRANSFER PLANNER</button></div>
   <label class="row"><span>VOYAGER 1</span><input type="checkbox" id="voyager" checked></label>
   <label class="row"><span>DEBUG</span><input type="checkbox" id="debug"></label>
   <div class="mono" id="readout"></div>
@@ -141,6 +143,9 @@ voyagerChk.addEventListener('change', () => renderer.setVoyagerVisible(voyagerCh
 const sunIdx = bodyIds.indexOf('Sun'), earthIdx = bodyIds.indexOf('Earth');
 const addVessel = createVesselPanel(renderer, app, () => ({ state, sunIdx, earthIdx, tdb: curTdb }));
 $<HTMLButtonElement>('#vessel').addEventListener('click', addVessel);
+
+const toggleTransfer = createTransferPanel(renderer, app, () => ({ state, bodyIds, sunIdx, tdb: curTdb }));
+$<HTMLButtonElement>('#transfer').addEventListener('click', toggleTransfer);
 
 flyChk.addEventListener('change', () => {
   if (flyChk.checked && insertChk.checked) { insertChk.checked = false; renderer.setInsertMode(false); }

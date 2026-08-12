@@ -151,6 +151,12 @@ export class Renderer {
   private vesselLine!: THREE.Line;
   private nodeMarkers!: THREE.Points;
   private static VTRAJ = 320;
+  private static TSAMP = 220;
+  // Transfer planner (P3.5): a heliocentric trajectory + from/to markers.
+  private transferLine!: THREE.Line;
+  private transferMarks!: THREE.Points;
+  private transferHelio: Float64Array | null = null;
+  private transferMarksHelio: Float64Array | null = null;
   // Maneuver-node gizmo: 3 draggable handles along prograde/normal/radial.
   private handles: THREE.Mesh[] = [];
   private gizmoAxis = -1;           // which axis is being dragged (0=pro,1=nrm,2=rad)
@@ -226,11 +232,42 @@ export class Renderer {
       h.userData.axis = a;
       this.handles.push(h); this.scene.add(h);
     }
+    this.transferLine = new THREE.Line(
+      new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(Renderer.TSAMP * 3), 3)),
+      new THREE.LineBasicMaterial({ color: 0xffaa33, transparent: true, opacity: 0.95 }));
+    this.transferLine.frustumCulled = false; this.transferLine.visible = false; this.scene.add(this.transferLine);
+    this.transferMarks = new THREE.Points(
+      new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(2 * 3), 3)),
+      new THREE.PointsMaterial({ color: 0xffee88, size: 11, sizeAttenuation: false, depthTest: false }));
+    this.transferMarks.frustumCulled = false; this.transferMarks.visible = false; this.scene.add(this.transferMarks);
     const el = this.renderer.domElement;
     el.addEventListener('pointerdown', (e) => this.onGizmoDown(e));
     el.addEventListener('pointermove', (e) => this.onGizmoMove(e));
     window.addEventListener('pointerup', () => this.onGizmoUp());
     window.addEventListener('resize', () => this.onResize());
+  }
+
+  /** Draw a heliocentric transfer trajectory (n×3) + endpoint markers, or clear. */
+  setTransfer(path: Float64Array | null, marks: Float64Array | null): void {
+    this.transferHelio = path; this.transferMarksHelio = marks ?? null;
+    this.transferLine.visible = !!path; this.transferMarks.visible = !!marks;
+  }
+
+  private updateTransfer(): void {
+    const path = this.transferHelio;
+    if (!path || !this.transferLine.visible) return;
+    const ox = this.sunAbs.x - this.focusAbs.x, oy = this.sunAbs.y - this.focusAbs.y, oz = this.sunAbs.z - this.focusAbs.z;
+    const n = path.length / 3, arr = this.transferLine.geometry.getAttribute('position').array as Float32Array;
+    for (let i = 0; i < n; i++) { arr[i * 3] = path[i * 3] + ox; arr[i * 3 + 1] = path[i * 3 + 1] + oy; arr[i * 3 + 2] = path[i * 3 + 2] + oz; }
+    (this.transferLine.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
+    this.transferLine.geometry.setDrawRange(0, n);
+    const m = this.transferMarksHelio;
+    if (m) {
+      const ma = this.transferMarks.geometry.getAttribute('position').array as Float32Array;
+      for (let i = 0; i < m.length / 3; i++) { ma[i * 3] = m[i * 3] + ox; ma[i * 3 + 1] = m[i * 3 + 1] + oy; ma[i * 3 + 2] = m[i * 3 + 2] + oz; }
+      (this.transferMarks.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
+      this.transferMarks.geometry.setDrawRange(0, m.length / 3);
+    }
   }
 
   setVessel(v: Vessel | null): void {
@@ -668,6 +705,7 @@ export class Renderer {
     this.updateOrbits(state);
     this.updateVoyager(tdb);
     this.updateVessel(tdb);
+    this.updateTransfer();
     if (this.starField) this.starField.update(this.camera);
 
     const now = performance.now();
