@@ -37,13 +37,13 @@
     {
       "id": "tle-snapshot",
       "kind": "elements",
-      "file": "public/data/tles.txt",
-      "source": "CelesTrak GP element sets (stations, gps-ops, geo, starlink)",
+      "file": "public/data/tles.txt + public/data/starlink.txt",
+      "source": "CelesTrak GP element sets (stations, gps-ops, geo; + full starlink group)",
       "url": "https://celestrak.org/NORAD/elements/",
       "licence": "Public / CelesTrak terms",
       "attribution": "CelesTrak (Dr. T.S. Kelso) — NORAD two-line elements",
       "retrieved": "2026-08-12",
-      "notes": "P3.5. SGP4-propagated at runtime (satellite.js) for the Earth-satellite layer. A snapshot; TLEs go stale, so accuracy degrades far from the 2026-08 epoch."
+      "notes": "P3.5. Two SGP4 groups (satellite.js): a mixed set (~83) and the full Starlink constellation (~10.8k, throttled). Hover to name. A snapshot; TLEs go stale, so accuracy degrades far from the 2026-08 epoch."
     }
   ]
 }

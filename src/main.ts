@@ -43,7 +43,8 @@ const MISSIONS: [string, string, number, boolean][] = [
 for (const [name, , color, on] of MISSIONS) {
   renderer.loadMission(name, `data/missions/${name}.bin`, color).then(() => renderer.setMissionVisible(name, on)).catch((e) => console.warn(name, e));
 }
-renderer.loadSatellites('data/tles.txt').catch((e) => console.warn('tles:', e));
+renderer.loadSatelliteGroup('mixed', 'data/tles.txt', 0x8fe9ff, 3).catch((e) => console.warn('tles:', e));
+renderer.loadSatelliteGroup('starlink', 'data/starlink.txt', 0xbfe0ff, 2).catch((e) => console.warn('starlink:', e));
 
 const state = new Float64Array(nBodies * 6);
 let curTdb = startTdb;
@@ -69,6 +70,7 @@ hud.innerHTML = `
   <div class="row"><button id="dvladder">Δv LADDER</button></div>
   <details style="margin:2px 0"><summary style="cursor:pointer;user-select:none">MISSIONS &amp; PROBES</summary><div id="missions" style="padding-left:6px;margin-top:2px"></div></details>
   <label class="row"><span>SATELLITES (SGP4)</span><input type="checkbox" id="sats"></label>
+  <label class="row"><span>STARLINK (~11k)</span><input type="checkbox" id="starlink"></label>
   <label class="row"><span>SPHERES OF INFLUENCE</span><input type="checkbox" id="soi"></label>
   <label class="row"><span>DEBUG</span><input type="checkbox" id="debug"></label>
   <div class="mono" id="readout"></div>
@@ -158,7 +160,20 @@ missionsBox.innerHTML = MISSIONS.map(([name, label, color, on]) =>
 missionsBox.querySelectorAll<HTMLInputElement>('input[data-m]').forEach((chk) =>
   chk.addEventListener('change', () => renderer.setMissionVisible(chk.dataset.m!, chk.checked)));
 const satChk = $<HTMLInputElement>('#sats');
-satChk.addEventListener('change', () => renderer.setSatellitesVisible(satChk.checked));
+satChk.addEventListener('change', () => renderer.setSatGroupVisible('mixed', satChk.checked));
+const starlinkChk = $<HTMLInputElement>('#starlink');
+starlinkChk.addEventListener('change', () => renderer.setSatGroupVisible('starlink', starlinkChk.checked));
+
+// Hover tooltip: name the satellite nearest the cursor (across visible groups).
+const satTip = document.createElement('div');
+satTip.style.cssText = 'position:fixed;pointer-events:none;background:rgba(10,14,20,0.92);border:1px solid #2a3442;color:#cfe;font:10px ui-monospace,monospace;padding:2px 7px;border-radius:3px;display:none;z-index:20';
+app.appendChild(satTip);
+window.addEventListener('mousemove', (e) => {
+  const n = renderer.pickSatellite(e.clientX, e.clientY);
+  if (n) { satTip.textContent = n; satTip.style.left = `${e.clientX + 13}px`; satTip.style.top = `${e.clientY + 10}px`; satTip.style.display = 'block'; }
+  else satTip.style.display = 'none';
+});
+
 const soiChk = $<HTMLInputElement>('#soi');
 soiChk.addEventListener('change', () => renderer.setSoiVisible(soiChk.checked));
 

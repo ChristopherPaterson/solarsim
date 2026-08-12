@@ -147,10 +147,10 @@ export class Renderer {
   private ndc = new THREE.Vector2();
   // Real mission trajectories (P3.5): baked polylines + a marker at the current epoch.
   private missions: { name: string; line: THREE.Line; marker: THREE.Points; abs: Float64Array; times: Float64Array }[] = [];
-  // Earth satellites (P3.5): SGP4 from TLEs, propagated + placed around Earth each frame.
-  private satrecs: satellite.SatRec[] = [];
-  private satPoints!: THREE.Points;
-  private satVisible = false;
+  // Earth satellites (P3.5): named SGP4 groups (e.g. mixed constellations, Starlink).
+  private satGroups: { name: string; satrecs: satellite.SatRec[]; names: string[]; points: THREE.Points; visible: boolean; drawIdx: number[]; drawCount: number }[] = [];
+  private pickV = new THREE.Vector3();
+  private satFrame = 0;
   // Vessel on rails (P3.5): heliocentric Kepler plan, offset by the Sun each frame.
   private vessel: Vessel | null = null;
   private vesselMarker!: THREE.Points;
@@ -237,10 +237,6 @@ export class Renderer {
       new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(2 * 3), 3)),
       new THREE.PointsMaterial({ color: 0xffee88, size: 11, sizeAttenuation: false, depthTest: false }));
     this.transferMarks.frustumCulled = false; this.transferMarks.visible = false; this.scene.add(this.transferMarks);
-    this.satPoints = new THREE.Points(
-      new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(400 * 3), 3)),
-      new THREE.PointsMaterial({ color: 0x8fe9ff, size: 3, sizeAttenuation: false, depthTest: false, transparent: true }));
-    this.satPoints.frustumCulled = false; this.satPoints.visible = false; this.satPoints.geometry.setDrawRange(0, 0); this.scene.add(this.satPoints);
     const el = this.renderer.domElement;
     el.addEventListener('pointerdown', (e) => this.onGizmoDown(e));
     el.addEventListener('pointermove', (e) => this.onGizmoMove(e));
@@ -402,39 +398,74 @@ export class Renderer {
   }
   missionNames(): string[] { return this.missions.map((m) => m.name); }
 
-  /** Load Earth-satellite TLEs (name / line1 / line2 triples) for SGP4 rendering. */
-  async loadSatellites(url: string): Promise<void> {
+  /** Load a named Earth-satellite group (TLE name/line1/line2 triples) for SGP4. */
+  async loadSatelliteGroup(name: string, url: string, color: number, size = 3): Promise<void> {
     const lines = (await (await fetch(url)).text()).split(/\r?\n/);
+    const satrecs: satellite.SatRec[] = [], names: string[] = [];
     for (let i = 0; i + 2 < lines.length; i++) {
       if (lines[i + 1]?.startsWith('1 ') && lines[i + 2]?.startsWith('2 ')) {
-        try { this.satrecs.push(satellite.twoline2satrec(lines[i + 1], lines[i + 2])); } catch { /* skip bad TLE */ }
+        try { satrecs.push(satellite.twoline2satrec(lines[i + 1], lines[i + 2])); names.push((lines[i] || `NORAD ${lines[i + 1].slice(2, 7)}`).trim()); } catch { /* skip */ }
         i += 2;
       }
     }
+    const points = new THREE.Points(
+      new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(satrecs.length * 3), 3)),
+      new THREE.PointsMaterial({ color, size, sizeAttenuation: false, depthTest: false, transparent: true }));
+    points.frustumCulled = false; points.visible = false; points.geometry.setDrawRange(0, 0); this.scene.add(points);
+    this.satGroups.push({ name, satrecs, names, points, visible: false, drawIdx: [], drawCount: 0 });
   }
-  setSatellitesVisible(on: boolean): void { this.satVisible = on; this.satPoints.visible = on; }
-  satelliteCount(): number { return this.satrecs.length; }
 
-  // SGP4-propagate each satellite and place it around Earth (TEME ≈ equatorial
-  // J2000 -> ecliptic; + Earth's barycentric position). Only useful zoomed to Earth.
+  setSatGroupVisible(name: string, on: boolean): void {
+    const g = this.satGroups.find((x) => x.name === name);
+    if (g) { g.visible = on; g.points.visible = on; }
+  }
+  satGroupCount(name: string): number { return this.satGroups.find((x) => x.name === name)?.satrecs.length ?? 0; }
+
+  /** Name of the satellite nearest the cursor (within ~12 px) across visible groups. */
+  pickSatellite(clientX: number, clientY: number): string | null {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const px = clientX - rect.left, py = clientY - rect.top;
+    let best = 12, name: string | null = null;
+    for (const g of this.satGroups) {
+      if (!g.visible || !g.drawCount) continue;
+      const arr = g.points.geometry.getAttribute('position').array as Float32Array;
+      for (let i = 0; i < g.drawCount; i++) {
+        this.pickV.set(arr[i * 3], arr[i * 3 + 1], arr[i * 3 + 2]).project(this.camera);
+        if (this.pickV.z >= 1) continue;
+        const d = Math.hypot((this.pickV.x * 0.5 + 0.5) * rect.width - px, (-this.pickV.y * 0.5 + 0.5) * rect.height - py);
+        if (d < best) { best = d; name = g.names[g.drawIdx[i]]; }
+      }
+    }
+    return name;
+  }
+
+  // SGP4-propagate each visible group and place it around Earth (TEME ≈ equatorial
+  // J2000 -> ecliptic; + Earth's barycentric position). Big groups throttle to
+  // ~every 4th frame (satellites barely move a pixel between frames).
   private updateSatellites(state: Float64Array, tdb: number): void {
-    if (!this.satVisible || this.earthIdx < 0) return;
+    if (this.earthIdx < 0) return;
+    this.satFrame++;
     const date = tdbToDate(tdb as never);
     const ex = state[this.earthIdx * 6], ey = state[this.earthIdx * 6 + 1], ez = state[this.earthIdx * 6 + 2];
     const fx = this.focusAbs.x, fy = this.focusAbs.y, fz = this.focusAbs.z;
-    const arr = this.satPoints.geometry.getAttribute('position').array as Float32Array;
-    let count = 0;
-    for (const rec of this.satrecs) {
-      const pv = satellite.propagate(rec, date);
-      const pos = pv?.position;
-      if (!pos || typeof pos === 'boolean') continue;
-      this.vr[0] = pos.x * 1000; this.vr[1] = pos.y * 1000; this.vr[2] = pos.z * 1000; // ECI m
-      eqjToEcl(this.vr, this.vr); // equatorial -> ecliptic
-      arr[count * 3] = this.vr[0] + ex - fx; arr[count * 3 + 1] = this.vr[1] + ey - fy; arr[count * 3 + 2] = this.vr[2] + ez - fz;
-      count++;
+    for (const g of this.satGroups) {
+      if (!g.visible) continue;
+      if (g.satrecs.length > 1000 && this.satFrame % 4 !== 0) continue; // throttle large constellations
+      const arr = g.points.geometry.getAttribute('position').array as Float32Array;
+      let count = 0;
+      for (let si = 0; si < g.satrecs.length; si++) {
+        const pv = satellite.propagate(g.satrecs[si], date);
+        const pos = pv?.position;
+        if (!pos || typeof pos === 'boolean') continue;
+        this.vr[0] = pos.x * 1000; this.vr[1] = pos.y * 1000; this.vr[2] = pos.z * 1000;
+        eqjToEcl(this.vr, this.vr);
+        arr[count * 3] = this.vr[0] + ex - fx; arr[count * 3 + 1] = this.vr[1] + ey - fy; arr[count * 3 + 2] = this.vr[2] + ez - fz;
+        g.drawIdx[count] = si; count++;
+      }
+      g.drawCount = count;
+      (g.points.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
+      g.points.geometry.setDrawRange(0, count);
     }
-    (this.satPoints.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
-    this.satPoints.geometry.setDrawRange(0, count);
   }
 
   // Rewrite each visible mission's line offset by focus + place its epoch marker.
