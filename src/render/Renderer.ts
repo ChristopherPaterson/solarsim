@@ -201,7 +201,7 @@ export class Renderer {
   // Real mission trajectories (P3.5): baked polylines + a marker at the current epoch.
   private missions: { name: string; line: THREE.Line; marker: THREE.Points; abs: Float64Array; times: Float64Array }[] = [];
   // Earth satellites (P3.5): named SGP4 groups (e.g. mixed constellations, Starlink).
-  private satGroups: { name: string; satrecs: satellite.SatRec[]; names: string[]; points: THREE.Points; visible: boolean; drawIdx: number[]; drawCount: number }[] = [];
+  private satGroups: { name: string; satrecs: satellite.SatRec[]; names: string[]; points: THREE.Points; visible: boolean; drawIdx: number[]; drawCount: number; phase: number }[] = [];
   private pickV = new THREE.Vector3();
   private satFrame = 0;
   private satOrbits!: THREE.LineSegments; // Earth-relative orbit tracks (ECI ecliptic)
@@ -589,7 +589,7 @@ export class Renderer {
       new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(satrecs.length * 3), 3)),
       new THREE.PointsMaterial({ color, size, sizeAttenuation: false, transparent: true })); // depth-test: occluded behind Earth
     points.frustumCulled = false; points.visible = false; points.geometry.setDrawRange(0, 0); this.scene.add(points);
-    this.satGroups.push({ name, satrecs, names, points, visible: false, drawIdx: [], drawCount: 0 });
+    this.satGroups.push({ name, satrecs, names, points, visible: false, drawIdx: [], drawCount: 0, phase: this.satGroups.length });
   }
 
   setSatGroupVisible(name: string, on: boolean): void {
@@ -664,7 +664,10 @@ export class Renderer {
     const fx = this.focusAbs.x, fy = this.focusAbs.y, fz = this.focusAbs.z;
     for (const g of this.satGroups) {
       if (!g.visible) continue;
-      if (g.satrecs.length > 1000 && this.satFrame % 4 !== 0) continue; // throttle large constellations
+      // Satellites move <1px/frame, so re-propagating every frame is wasted SGP4 +
+      // GC. Throttle all groups (every 3rd frame), big constellations harder (12th).
+      const stride = g.satrecs.length > 1000 ? 12 : 3;
+      if ((this.satFrame + g.phase) % stride !== 0) continue;
       const arr = g.points.geometry.getAttribute('position').array as Float32Array;
       let count = 0;
       for (let si = 0; si < g.satrecs.length; si++) {

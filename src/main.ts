@@ -66,11 +66,12 @@ const MISSIONS: [string, string, number, boolean][] = [
 for (const [name, , color, on] of MISSIONS) {
   renderer.loadMission(name, `data/missions/${name}.bin`, color).then(() => renderer.setMissionVisible(name, on)).catch((e) => console.warn(name, e));
 }
-renderer.loadAsteroids('data/asteroids.bin').catch((e) => console.warn('asteroids:', e));
 // Real shape models (Thomas, PDS SBN) for the lumpy Martian moons.
 renderer.loadMoonShape('Phobos', 'data/shapes/phobos.bin').catch((e) => console.warn('phobos shape:', e));
 renderer.loadMoonShape('Deimos', 'data/shapes/deimos.bin').catch((e) => console.warn('deimos shape:', e));
 // Colour-coded satellite categories (name, file, colour, dot size, legend label).
+// These layers default OFF, so they're fetched lazily on first enable (below) to
+// keep ~5 MB (asteroids 2.8 MB + ~2 MB of TLEs) off the first-load payload.
 const SAT_CATS: [string, string, number, number, string][] = [
   ['stations', 'stations', 0xffffff, 5, 'Space stations'],
   ['navigation', 'navigation', 0x54e08a, 3, 'Navigation · GPS/GNSS'],
@@ -79,10 +80,6 @@ const SAT_CATS: [string, string, number, number, string][] = [
   ['science', 'science', 0xc98bff, 4, 'Science'],
   ['other', 'other', 0x8a97a5, 2, 'Other'],
 ];
-for (const [name, file, colour, size] of SAT_CATS) {
-  renderer.loadSatelliteGroup(name, `data/sats/${file}.txt`, colour, size).catch((e) => console.warn(name, e));
-}
-renderer.loadSatelliteGroup('starlink', 'data/starlink.txt', 0xbfe0ff, 2).catch((e) => console.warn('starlink:', e));
 
 const state = new Float64Array(nBodies * 6);
 let curTdb = startTdb;
@@ -339,12 +336,29 @@ $<HTMLInputElement>('#allprobes').addEventListener('change', (e) => {
   for (const chk of missionChks) { chk.checked = on; renderer.setMissionVisible(chk.dataset.m!, on); }
 });
 const astChk = $<HTMLInputElement>('#asteroids');
-astChk.addEventListener('change', () => renderer.setAsteroidsVisible(astChk.checked));
+let asteroidsLoaded = false;
+astChk.addEventListener('change', () => {
+  if (astChk.checked && !asteroidsLoaded) {
+    asteroidsLoaded = true;
+    renderer.loadAsteroids('data/asteroids.bin').then(() => renderer.setAsteroidsVisible(true)).catch((e) => console.warn('asteroids:', e));
+  } else renderer.setAsteroidsVisible(astChk.checked);
+});
 $<HTMLInputElement>('#astcount').addEventListener('input', (e) => renderer.setAsteroidCount(+(e.target as HTMLInputElement).value));
 
+// Satellite groups fetch their TLEs on first enable, then toggle visibility.
+const SAT_URL: Record<string, [string, number, number]> = { starlink: ['data/starlink.txt', 0xbfe0ff, 2] };
+for (const [name, file, colour, size] of SAT_CATS) SAT_URL[name] = [`data/sats/${file}.txt`, colour, size];
+const satLoaded = new Set<string>();
+function toggleSatGroup(name: string, on: boolean) {
+  if (on && !satLoaded.has(name)) {
+    satLoaded.add(name);
+    const [url, colour, size] = SAT_URL[name];
+    renderer.loadSatelliteGroup(name, url, colour, size).then(() => renderer.setSatGroupVisible(name, on)).catch((e) => { satLoaded.delete(name); console.warn(name, e); });
+  } else renderer.setSatGroupVisible(name, on);
+}
 const satChk = $<HTMLInputElement>('#sats');
 const starlinkChk = $<HTMLInputElement>('#starlink');
-starlinkChk.addEventListener('change', () => renderer.setSatGroupVisible('starlink', starlinkChk.checked));
+starlinkChk.addEventListener('change', () => toggleSatGroup('starlink', starlinkChk.checked));
 const satOrbChk = $<HTMLInputElement>('#satorbits');
 satOrbChk.addEventListener('change', () => renderer.setSatOrbitsVisible(satOrbChk.checked));
 
@@ -354,9 +368,9 @@ $<HTMLDivElement>('#satlegend').innerHTML = SAT_CATS
   .map(([name, , colour, , label]) => `<label class="row sat-cat"><span class="sw"><i style="background:#${colour.toString(16).padStart(6, '0')}"></i>${label}</span><input type="checkbox" data-cat="${name}"></label>`)
   .join('');
 const catChecks = Array.from($<HTMLDivElement>('#satlegend').querySelectorAll<HTMLInputElement>('input[data-cat]'));
-for (const cb of catChecks) cb.addEventListener('change', () => renderer.setSatGroupVisible(cb.dataset.cat!, cb.checked));
+for (const cb of catChecks) cb.addEventListener('change', () => toggleSatGroup(cb.dataset.cat!, cb.checked));
 satChk.addEventListener('change', () => {
-  for (const cb of catChecks) { cb.checked = satChk.checked; renderer.setSatGroupVisible(cb.dataset.cat!, satChk.checked); }
+  for (const cb of catChecks) { cb.checked = satChk.checked; toggleSatGroup(cb.dataset.cat!, satChk.checked); }
 });
 
 // Hover: name the satellite nearest the cursor, highlight its orbit ring, fade
