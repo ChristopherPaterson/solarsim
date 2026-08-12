@@ -41,6 +41,8 @@ export const PLACES: Place[] = [
   { name: 'Plesetsk Cosmodrome', lat: 62.93, lon: 40.57, launch: true },
   { name: 'Wallops', lat: 37.94, lon: -75.47, launch: true },
   { name: 'Rocket Lab LC-1 (Māhia)', lat: -39.26, lon: 177.86, launch: true },
+  { name: 'Arnhem Space Centre', lat: -12.38, lon: 136.71, launch: true },
+  { name: 'Bowen Orbital Spaceport', lat: -19.97, lon: 147.92, launch: true },
 ];
 
 /** Unit direction on the sphere in the body-fixed (texture) frame for a lat/lon.

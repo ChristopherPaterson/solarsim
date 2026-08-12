@@ -276,6 +276,9 @@ export class Renderer {
       const [x, y, z] = placeDir(pl.lat, pl.lon);
       this.cities.push({ name: pl.name, dir: new THREE.Vector3(x, y, z), launch: !!pl.launch, el });
     }
+    // Launch sites win the greedy de-clutter over nearby cities (e.g. Vandenberg
+    // sits ~2° from Los Angeles), so they aren't suppressed by a city label.
+    this.cities.sort((a, b) => Number(b.launch) - Number(a.launch));
 
     this.scene.background = new THREE.Color(0x05070a);
     this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1e0, 1e13);
@@ -1130,9 +1133,9 @@ export class Renderer {
     const eb = this.earthIdx >= 0 ? this.bodies[this.earthIdx] : null;
     const R = eb ? eb.mesh.scale.x : 0;
     const center = eb ? eb.mesh.position : null;
-    // Gate: labels on, Earth present, and camera within ~15 Earth radii (close zoom;
-    // focusing Earth lands at 10R, so they appear on arrival and as you close in).
-    const show = this.labelsOn && !!eb && this.camera.position.distanceTo(center!) < R * 15;
+    // Gate: labels on, Earth present, and camera within ~8 Earth radii (close zoom;
+    // focusing Earth lands at 10R, so you close in a little before they appear).
+    const show = this.labelsOn && !!eb && this.camera.position.distanceTo(center!) < R * 8;
     if (!show) { for (const c of this.cities) c.el.style.display = 'none'; return; }
     const el0 = this.renderer.domElement, W = el0.clientWidth, H = el0.clientHeight;
     const camFromCenter = this.cityScratch.copy(this.camera.position).sub(center!); // camera relative to Earth centre

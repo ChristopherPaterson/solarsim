@@ -108,6 +108,7 @@ hud.innerHTML = `
     <label class="row"><span>TRUE SCALE</span><input type="checkbox" id="truescale"></label>
     <label class="row"><span>LABELS</span><input type="checkbox" id="labels" checked></label>
     <label class="row"><span>TACTICAL</span><input type="checkbox" id="tactical" checked></label>
+    <label class="row"><span>ORBIT PATHS</span><input type="checkbox" id="orbits" checked></label>
     <label class="row"><span>FLY · WASD+DRAG</span><input type="checkbox" id="fly"></label>
   </div></details>
 
@@ -358,6 +359,8 @@ renderer.setLabelsVisible(labelsChk.checked);
 const tactical = createTactical(app, () => ({ state, bodyIds, focusIdx, sunIdx }));
 const tacticalChk = $<HTMLInputElement>('#tactical');
 tacticalChk.addEventListener('change', () => tactical.setVisible(tacticalChk.checked));
+const orbitsChk = $<HTMLInputElement>('#orbits');
+orbitsChk.addEventListener('change', () => { renderer.showOrbits = orbitsChk.checked; });
 
 const addVessel = createVesselPanel(renderer, app, () => ({ state, sunIdx, earthIdx, tdb: curTdb }));
 $<HTMLButtonElement>('#vessel').addEventListener('click', addVessel);
