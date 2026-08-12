@@ -482,6 +482,20 @@ export class Renderer {
   }
   satGroupCount(name: string): number { return this.satGroups.find((x) => x.name === name)?.satrecs.length ?? 0; }
 
+  /** Substring-search satellite names across all loaded groups (for the search box). */
+  searchSatellites(q: string, limit = 8): { name: string; key: string }[] {
+    const ql = q.toLowerCase(), out: { name: string; key: string }[] = [];
+    for (const g of this.satGroups) {
+      for (let i = 0; i < g.names.length; i++) {
+        if (g.names[i].toLowerCase().includes(ql)) {
+          out.push({ name: g.names[i], key: `${g.name}#${i}` });
+          if (out.length >= limit) return out;
+        }
+      }
+    }
+    return out;
+  }
+
   /** Satellite nearest the cursor (within ~12 px) across visible groups. `key`
    *  (group#index) identifies its orbit ring for hover-highlighting. */
   pickSatellite(clientX: number, clientY: number): { name: string; key: string } | null {
@@ -584,9 +598,13 @@ export class Renderer {
   // a key -> that ring bright, the rest dimmed (hover focus). Cheap: only runs
   // when the hovered ring changes, not per frame.
   highlightSatOrbit(key: string | null): void {
-    if (!this.satOrbits.visible || key === this.orbitHi) return;
-    this.orbitHi = key;
-    this.paintOrbits(key);
+    if (!this.satOrbits.visible) return;
+    // If the sat has no drawn ring (only the first ~400 do), fall back to normal
+    // shading rather than dimming everything to nothing.
+    const eff = key != null && this.orbitRanges.some((r) => r.key === key) ? key : null;
+    if (eff === this.orbitHi) return;
+    this.orbitHi = eff;
+    this.paintOrbits(eff);
   }
 
   private paintOrbits(key: string | null): void {

@@ -88,6 +88,11 @@ const focusOpts = SOLAR_SYSTEM.map((b, i) => {
 hud.innerHTML = `
   <div class="title"><b>SOLARSIM</b><span class="badges"><span class="badge" id="backend">…</span><span class="badge" id="fps">-- FPS</span></span></div>
 
+  <div class="search">
+    <input type="text" id="search" placeholder="⌕  SEARCH  ( / )" autocomplete="off" spellcheck="false">
+    <div class="results" id="results"></div>
+  </div>
+
   <details class="sec" open><summary>TIME</summary><div class="body">
     <label>DATE <input type="datetime-local" id="date" step="1"></label>
     <label>WARP <input type="range" id="rate" min="0" max="8" step="0.05"></label>
@@ -136,6 +141,34 @@ menuBtn.className = 'menu-btn'; menuBtn.textContent = '☰'; menuBtn.setAttribut
 menuBtn.addEventListener('click', () => hud.classList.toggle('open'));
 app.appendChild(menuBtn);
 renderer.domElement.addEventListener('pointerdown', () => hud.classList.remove('open'));
+
+// Help: a "?" box bottom-right opens a shortcuts modal.
+const helpBtn = document.createElement('button');
+helpBtn.className = 'help-btn'; helpBtn.textContent = '?'; helpBtn.setAttribute('aria-label', 'Keyboard shortcuts');
+const helpModal = document.createElement('div');
+helpModal.className = 'modal-overlay';
+helpModal.innerHTML = `
+  <div class="modal">
+    <div class="modal-head"><b>CONTROLS</b><button class="modal-x" aria-label="Close">✕</button></div>
+    <div class="modal-grid">
+      <span class="k">Space</span><span>Play / pause</span>
+      <span class="k">,&nbsp;&nbsp;.</span><span>Slower / faster time warp</span>
+      <span class="k">N</span><span>Jump to now</span>
+      <span class="k">[&nbsp;&nbsp;]</span><span>Previous / next body</span>
+      <span class="k">T</span><span>Toggle true scale</span>
+      <span class="k">F</span><span>Free-flight (WASD + drag)</span>
+      <span class="k">/</span><span>Search bodies &amp; satellites</span>
+      <span class="k">?</span><span>This help</span>
+      <span class="k">Esc</span><span>Close search / dialog</span>
+    </div>
+    <div class="modal-sub">MOUSE drag to orbit · scroll to zoom · click a satellite for its Wikipedia article</div>
+    <div class="modal-sub">TOUCH one finger to orbit · pinch to zoom · tap ☰ for controls</div>
+  </div>`;
+app.appendChild(helpBtn);
+app.appendChild(helpModal);
+const toggleHelp = (show?: boolean) => helpModal.classList.toggle('open', show);
+helpBtn.addEventListener('click', () => toggleHelp());
+helpModal.addEventListener('click', (e) => { if (e.target === helpModal || (e.target as HTMLElement).classList.contains('modal-x')) toggleHelp(false); });
 
 const $ = <T extends HTMLElement>(sel: string) => hud.querySelector<T>(sel)!;
 const dateInput = $<HTMLInputElement>('#date');
@@ -303,10 +336,78 @@ flyChk.addEventListener('change', () => {
   if (flyChk.checked && insertChk.checked) { insertChk.checked = false; renderer.setInsertMode(false); }
   renderer.setFlyMode(flyChk.checked);
 });
-// 'F' toggles free-flight too (ignored while typing in the date field).
+// --- Search: planets, moons (focus them) + satellites (focus Earth, show + ----
+// highlight the ring). Results dropdown under the box; "/" focuses, Esc closes.
+const searchInput = $<HTMLInputElement>('#search');
+const resultsBox = $<HTMLDivElement>('#results');
+const BODY_INDEX = SOLAR_SYSTEM.map((b, i) => ({ i, name: b.id, kind: b.id === 'Sun' ? 'star' : b.parent ? 'moon' : 'planet' }));
+const earthFocus = SOLAR_SYSTEM.findIndex((b) => b.id === 'Earth');
+
+function focusBody(idx: number) {
+  focusSel.value = String(idx); focusSel.dispatchEvent(new Event('change'));
+}
+function selectSatellite(key: string) {
+  focusBody(earthFocus);
+  if (!satChk.checked) { satChk.checked = true; satChk.dispatchEvent(new Event('change')); }
+  if (!satOrbChk.checked) { satOrbChk.checked = true; satOrbChk.dispatchEvent(new Event('change')); }
+  renderer.highlightSatOrbit(key);
+}
+type Hit = { label: string; tag: string; run: () => void };
+let hits: Hit[] = [];
+function runSearch() {
+  const q = searchInput.value.trim();
+  if (!q) { resultsBox.style.display = 'none'; hits = []; return; }
+  const ql = q.toLowerCase();
+  hits = BODY_INDEX.filter((b) => b.name.toLowerCase().includes(ql)).slice(0, 6)
+    .map((b) => ({ label: b.name.toUpperCase(), tag: b.kind, run: () => focusBody(b.i) }));
+  for (const s of renderer.searchSatellites(q, 8 - hits.length))
+    hits.push({ label: s.name, tag: 'sat', run: () => selectSatellite(s.key) });
+  resultsBox.innerHTML = hits.length
+    ? hits.map((h, i) => `<div class="r" data-i="${i}"><span>${h.label}</span><span class="tag">${h.tag}</span></div>`).join('')
+    : `<div class="r none">no matches</div>`;
+  resultsBox.style.display = 'block';
+}
+function pick(i: number) {
+  const h = hits[i]; if (!h) return;
+  h.run();
+  searchInput.value = ''; resultsBox.style.display = 'none'; hits = []; searchInput.blur();
+  hud.classList.remove('open');
+}
+searchInput.addEventListener('input', runSearch);
+resultsBox.addEventListener('click', (e) => {
+  const r = (e.target as HTMLElement).closest('.r[data-i]');
+  if (r) pick(+(r as HTMLElement).dataset.i!);
+});
+searchInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); pick(0); }
+  else if (e.key === 'Escape') { searchInput.value = ''; resultsBox.style.display = 'none'; searchInput.blur(); }
+});
+
+// --- Keyboard shortcuts (ignored while typing in a field) --------------------
+const typing = () => { const a = document.activeElement; return a instanceof HTMLInputElement || a instanceof HTMLSelectElement; };
+function cycleFocus(dir: number) {
+  const n = focusSel.options.length;
+  focusSel.selectedIndex = (focusSel.selectedIndex + dir + n) % n;
+  focusSel.dispatchEvent(new Event('change'));
+}
+function nudgeWarp(dir: number) {
+  rateInput.value = String(Math.min(8, Math.max(0, parseFloat(rateInput.value) + dir * 0.3)));
+  rateInput.dispatchEvent(new Event('input'));
+}
 window.addEventListener('keydown', (e) => {
-  if (e.key === 'f' && document.activeElement?.tagName !== 'INPUT') {
-    flyChk.checked = !flyChk.checked; renderer.setFlyMode(flyChk.checked);
+  if (e.key === 'Escape') { toggleHelp(false); resultsBox.style.display = 'none'; renderer.highlightSatOrbit(null); return; }
+  if (typing()) return;
+  switch (e.key) {
+    case '/': e.preventDefault(); hud.classList.add('open'); searchInput.focus(); break;
+    case '?': toggleHelp(); break;
+    case ' ': e.preventDefault(); playPause.click(); break;
+    case ',': nudgeWarp(-1); break;
+    case '.': nudgeWarp(1); break;
+    case 'n': case 'N': $<HTMLButtonElement>('#now').click(); break;
+    case 't': case 'T': trueScale.checked = !trueScale.checked; trueScale.dispatchEvent(new Event('change')); break;
+    case 'f': case 'F': flyChk.checked = !flyChk.checked; renderer.setFlyMode(flyChk.checked); break;
+    case '[': cycleFocus(-1); break;
+    case ']': cycleFocus(1); break;
   }
 });
 
