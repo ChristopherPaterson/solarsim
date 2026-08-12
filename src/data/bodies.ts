@@ -1,5 +1,6 @@
 import type { Body } from '../core/types';
 import moonStates from './moons.json';
+import { elementsToRv } from '../core/orbital/elements';
 
 // P1 catalogue: Sun, eight planets, Luna. Positions from astronomy-engine
 // (VSOP/NOVAS) in P1; P2 swaps `ephemeris.source` to baked SPK. GM values from
@@ -59,6 +60,34 @@ for (const [id, parent, radius, colour] of MOON_META) {
   const s = states[id];
   if (!s) continue;
   SOLAR_SYSTEM.push({ ...star(id, 0, radius, colour), parent, ephemeris: { source: 'kepler' }, relState: s, triaxial: TRIAXIAL[id], atmosphere: MOON_ATMOS[id] });
+}
+
+// --- Comets: Kepler-propagated about the Sun from published J2000 elements ----
+// Heliocentric ecliptic-J2000 elements (same frame as the sim), baked to a state
+// vector at J2000 so they ride the existing kepler-about-parent machinery.
+// name, perihelion q (AU), e, i, Ω, ω (deg), perihelion time (ISO), radius m, colour.
+const MU_SUN = 1.32712440018e20, AU_M = 1.495978707e11, J2000_MS = Date.UTC(2000, 0, 1, 12, 0, 0);
+const COMETS: [string, number, number, number, number, number, string, number, number][] = [
+  ['1P/Halley', 0.586, 0.967, 162.26, 58.42, 111.33, '1986-02-09T11:00:00Z', 5.5e3, 0xbfe8ff],
+  ['2P/Encke', 0.336, 0.848, 11.78, 334.57, 186.55, '2023-10-22T00:00:00Z', 2.4e3, 0xbfe8ff],
+  ['67P/Churyumov-Gerasimenko', 1.243, 0.641, 7.04, 50.19, 12.78, '2021-11-02T00:00:00Z', 2.0e3, 0xbfe8ff],
+  ['C/1995 O1 (Hale-Bopp)', 0.914, 0.995, 89.43, 282.47, 130.59, '1997-04-01T00:00:00Z', 3.0e4, 0xd8f0ff],
+  ['109P/Swift-Tuttle', 0.9595, 0.9632, 113.45, 139.38, 152.98, '1992-12-11T00:00:00Z', 1.3e4, 0xbfe8ff],
+];
+function cometState(q: number, e: number, iDeg: number, OmDeg: number, wDeg: number, tpISO: string) {
+  const a = (q * AU_M) / (1 - e);
+  const n = Math.sqrt(MU_SUN / (a * a * a)); // mean motion, rad/s
+  const tpSec = (Date.parse(tpISO) - J2000_MS) / 1000; // perihelion time, s past J2000
+  let M = ((-n * tpSec) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI); // mean anomaly at J2000
+  let E = M;
+  for (let k = 0; k < 80; k++) { const d = (E - e * Math.sin(E) - M) / (1 - e * Math.cos(E)); E -= d; if (Math.abs(d) < 1e-12) break; }
+  const nu = 2 * Math.atan2(Math.sqrt(1 + e) * Math.sin(E / 2), Math.sqrt(1 - e) * Math.cos(E / 2));
+  const D2R = Math.PI / 180, r = new Float64Array(3), v = new Float64Array(3);
+  elementsToRv({ a, e, i: iDeg * D2R, raan: OmDeg * D2R, argp: wDeg * D2R, nu }, MU_SUN, r, v);
+  return { r0: [r[0], r[1], r[2]] as [number, number, number], v0: [v[0], v[1], v[2]] as [number, number, number], epoch: 0 };
+}
+for (const [id, q, e, i, Om, w, tp, radius, colour] of COMETS) {
+  SOLAR_SYSTEM.push({ ...star(id, 0, radius, colour), parent: 'Sun', ephemeris: { source: 'kepler' }, relState: cometState(q, e, i, Om, w, tp), comet: true });
 }
 
 /** Byte layout helper: 6 Float64 per body (x,y,z,vx,vy,vz), SI, ecliptic-J2000. */

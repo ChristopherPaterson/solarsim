@@ -42,6 +42,17 @@ const RING_SEGMENTS = 256;
 const MAX_PARTICLES = 64;
 const TRAIL_LEN = 600; // breadcrumb points per test particle
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
+const NEG_Y = new THREE.Vector3(0, -1, 0);
+let _comaTex: THREE.Texture | null = null;
+// Soft radial glow for comet comae (white core -> transparent edge), cached.
+function comaTex(): THREE.Texture {
+  if (_comaTex) return _comaTex;
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const x = c.getContext('2d')!, g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.25, 'rgba(255,255,255,0.55)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+  x.fillStyle = g; x.fillRect(0, 0, 64, 64);
+  _comaTex = new THREE.CanvasTexture(c); return _comaTex;
+}
 const texLoader = new THREE.TextureLoader();
 
 /** Load an equirectangular texture from public/textures, sRGB. Async fill. */
@@ -204,6 +215,8 @@ export class Renderer {
   private cityBox!: HTMLDivElement; // DOM overlay for Earth surface labels (cities + launch sites)
   private cities: { name: string; dir: THREE.Vector3; launch: boolean; el: HTMLDivElement }[] = [];
   private cityScratch = new THREE.Vector3(); private cityNormal = new THREE.Vector3();
+  private comets: { rb: RenderBody; coma: THREE.Sprite; tail: THREE.Mesh }[] = [];
+  private vC = new THREE.Vector3(); private qC = new THREE.Quaternion(); // comet scratch
   private lp = new THREE.Vector3(); // scratch for label projection
   // Vessel on rails (P3.5): heliocentric Kepler plan, offset by the Sun each frame.
   private vessel: Vessel | null = null;
@@ -1002,6 +1015,14 @@ export class Renderer {
       }
       const rb: RenderBody = { def, mesh, axisP: P, axisQ: Q, axisE: E };
       this.bodies.push(rb);
+      if (def.comet) {
+        const coma = new THREE.Sprite(new THREE.SpriteMaterial({ map: comaTex(), color: col, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+        coma.frustumCulled = false; this.scene.add(coma);
+        const tg = new THREE.ConeGeometry(0.12, 1, 20, 1, true); tg.translate(0, -0.5, 0); // apex at origin, axis along -Y
+        const tail = new THREE.Mesh(tg, new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }));
+        tail.frustumCulled = false; this.scene.add(tail);
+        this.comets.push({ rb, coma, tail });
+      }
       const el = document.createElement('div');
       el.className = 'body-label'; el.textContent = def.id.toUpperCase(); el.style.display = 'none';
       this.labelBox.appendChild(el);
@@ -1076,6 +1097,29 @@ export class Renderer {
       if (placed.some((p) => !(rect.r < p.l || rect.l > p.r || rect.b < p.t || rect.t > p.b))) { c.el.style.display = 'none'; continue; }
       placed.push(rect);
       c.el.style.display = 'block'; c.el.style.left = `${lx}px`; c.el.style.top = `${ly}px`;
+    }
+  }
+
+  // Comet coma + tail: sized by activity (rises near the Sun) with the tail
+  // pointing anti-sunward. Far/dormant comets keep a faint coma and no tail.
+  private updateComets(): void {
+    if (!this.comets.length) return;
+    const sun = this.bodies[this.sunIdx].mesh.position, AU = 1.495978707e11;
+    for (const c of this.comets) {
+      const pos = c.rb.mesh.position;
+      this.vC.subVectors(pos, sun); // Sun -> comet = anti-sunward
+      const rAU = this.vC.length() / AU;
+      const activity = Math.min(1, (2.5 / Math.max(0.25, rAU)) ** 2);
+      const comaR = (0.004 + 0.012 * activity) * AU;
+      c.coma.position.copy(pos); c.coma.scale.setScalar(comaR * 2);
+      const tailLen = 0.28 * activity * AU;
+      c.tail.visible = tailLen > comaR; // only when meaningfully active
+      if (c.tail.visible) {
+        c.tail.position.copy(pos);
+        this.qC.setFromUnitVectors(NEG_Y, this.vC.normalize()); // cone axis -> anti-sun
+        c.tail.quaternion.copy(this.qC);
+        c.tail.scale.setScalar(tailLen);
+      }
     }
   }
 
@@ -1259,6 +1303,7 @@ export class Renderer {
     this.renderer.autoClear = true;
     if (this.post) this.post.render();
     else this.renderer.render(this.scene, this.camera);
+    this.updateComets();
     this.updateLabels();
     this.updateCities();
   }

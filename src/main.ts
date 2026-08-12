@@ -82,7 +82,8 @@ hud.className = 'hud';
 const focusOpts = SOLAR_SYSTEM.map((b, i) => {
   if (b.parent) return '';
   const moons = SOLAR_SYSTEM.map((m, j) => [m, j] as const).filter(([m]) => m.parent === b.id);
-  const group = moons.length ? `<optgroup label="${b.id.toUpperCase()} MOONS">${moons.map(([m, j]) => `<option value="${j}">&nbsp;&nbsp;↳ ${m.id.toUpperCase()}</option>`).join('')}</optgroup>` : '';
+  const glabel = b.id === 'Sun' ? 'COMETS' : `${b.id.toUpperCase()} MOONS`;
+  const group = moons.length ? `<optgroup label="${glabel}">${moons.map(([m, j]) => `<option value="${j}">&nbsp;&nbsp;↳ ${m.id.toUpperCase()}</option>`).join('')}</optgroup>` : '';
   return `<option value="${i}">${b.id.toUpperCase()}</option>${group}`;
 }).join('');
 
@@ -237,7 +238,8 @@ function frameFocus() {
   const def = SOLAR_SYSTEM[focusIdx];
   const exagg = trueScale.checked ? 1 : exaggeration;
   const dispR = def.radius * (def.id === 'Sun' ? Math.min(exagg, 30) : exagg);
-  const d = dispR * 10;
+  // Comets: frame the coma/tail (~0.3 AU), not the ~km nucleus.
+  const d = def.comet ? 0.45 * 1.495978707e11 : dispR * 10;
   renderer.controls.target.set(0, 0, 0); // focus body is pinned at the origin; recentre (undo any pan)
   renderer.camera.position.set(0, d * 0.375, d * 0.927);
   renderer.controls.update();

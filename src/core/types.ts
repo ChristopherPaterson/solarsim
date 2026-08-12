@@ -22,6 +22,7 @@ export interface Body {
   flattening?: number; // polar oblateness (r_pol = r·(1−f)), for the giants
   triaxial?: [number, number, number]; // axis ratios vs `radius` for lumpy small moons
   atmosphere?: { colour: number; scale: number }; // fresnel rim-glow halo (shell = radius·scale)
+  comet?: boolean; // render a coma glow + anti-sunward tail
 
   j2?: number;
   rotation: { period: number; poleRA: number; poleDec: number; primeMeridian: number };
