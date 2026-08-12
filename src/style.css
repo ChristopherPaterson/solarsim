@@ -3,6 +3,7 @@
   --amber: #ffab3d;
   --amber-dim: #a86a28;
   --cyan: #5fe0ef;
+  --cyan-text: #9fd6e0; /* dimmer cyan for body/readout copy (was #cfe1ee/#8fd/#cfe drift) */
   --grey: #7a8794;
   --panel: rgba(7, 10, 15, 0.84);
   --rule: rgba(255, 171, 61, 0.20);
@@ -41,10 +42,13 @@ canvas { display: block; }
   padding: 5px 0 4px; display: flex; justify-content: space-between; align-items: center;
 }
 .hud .sec > summary::-webkit-details-marker { display: none; }
-.hud .sec > summary::after { content: '+'; color: var(--amber-dim); font-weight: 400; }
-.hud .sec[open] > summary::after { content: '–'; }
+.hud .sec > summary::after { content: '▸'; color: var(--amber-dim); font-size: 9px; transition: transform 0.15s ease; }
+.hud .sec[open] > summary::after { transform: rotate(90deg); }
 .hud .sec > summary:hover { color: #ffd08a; }
 .hud .sec .body { display: flex; flex-direction: column; gap: 6px; padding: 2px 0 9px; }
+/* Nested sections (e.g. MISSIONS) read as a sub-group, not a peer. */
+.hud .sec .sec { border-top: none; padding-left: 8px; }
+.hud .sec .sec > summary { color: var(--grey); }
 
 .hud label { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
 .hud .row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
@@ -87,8 +91,9 @@ canvas { display: block; }
 .label-layer { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 4; }
 .body-label {
   position: absolute; transform: translateY(-50%);
-  color: var(--amber); font: 10px/1 ui-monospace, monospace; letter-spacing: 0.1em;
-  text-shadow: 0 0 5px rgba(0, 0, 0, 0.95), 0 0 2px rgba(0, 0, 0, 1); white-space: nowrap;
+  color: var(--amber); font: 10px/1 ui-monospace, monospace; letter-spacing: 0.1em; white-space: nowrap;
+  padding: 2px 5px; background: rgba(5, 7, 10, 0.35); border-radius: 2px;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.95), 0 0 2px rgba(0, 0, 0, 1);
 }
 .body-label::before { content: '· '; color: var(--cyan); }
 
@@ -122,7 +127,7 @@ canvas { display: block; }
 .panel .panel-x:hover { opacity: 1; color: var(--amber); }
 .panel .panel-rule { border-top: 1px solid var(--rule); margin: 9px 0 6px; padding-top: 6px; color: var(--amber); letter-spacing: 0.1em; text-transform: uppercase; font-weight: 700; font-size: 10px; }
 .panel .row { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin: 3px 0; }
-.panel .panel-readout { margin-top: 8px; color: #8fd6e0; line-height: 1.65; }
+.panel .panel-readout { margin-top: 8px; color: var(--cyan-text); line-height: 1.65; }
 .panel .panel-readout b { color: var(--amber); }
 .panel .tag { color: var(--grey); font-size: 9px; border: 1px solid var(--rule); padding: 0 4px; letter-spacing: 0.05em; }
 .panel .ok { color: #7cff9e; } .panel .bad { color: #ff6b6b; }
@@ -163,16 +168,32 @@ canvas { display: block; }
   font: 600 16px/1 ui-monospace, monospace; border-radius: 50%;
 }
 .help-btn:hover { border-color: var(--amber); background: rgba(255, 171, 61, 0.16); }
-.modal-overlay {
-  display: none; position: fixed; inset: 0; z-index: 40; background: rgba(3, 5, 8, 0.72);
-  backdrop-filter: blur(3px); align-items: center; justify-content: center;
+/* Stop the play/pause label swap (⏸ PAUSE / ▶ PLAY) from reflowing its row. */
+.hud #playpause { min-width: 86px; text-align: center; }
+/* N-body warning banner, in the console language (was rounded red/white toast). */
+.nbody-banner {
+  position: fixed; top: 12px; left: 50%; transform: translateX(-50%); display: none; z-index: 10;
+  padding: 5px 16px; background: var(--panel); border: 1px solid #ff6b6b; color: #ff9a8a;
+  font: 700 11px ui-monospace, monospace; letter-spacing: 0.16em; text-transform: uppercase; pointer-events: none;
+  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%); box-shadow: 0 0 14px rgba(255, 60, 40, 0.25);
 }
-.modal-overlay.open { display: flex; }
+.modal-overlay {
+  display: flex; position: fixed; inset: 0; z-index: 40; background: rgba(3, 5, 8, 0.72);
+  backdrop-filter: blur(3px); align-items: center; justify-content: center;
+  opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 0.16s ease, visibility 0.16s ease;
+}
+.modal-overlay.open { opacity: 1; visibility: visible; pointer-events: auto; }
 .modal {
   width: min(92vw, 420px); background: var(--panel); border: 1px solid var(--rule);
   color: var(--amber); padding: 16px 18px 18px; font: 12px/1.5 ui-monospace, monospace;
   clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 16px 100%, 0 calc(100% - 16px));
+  transform: translateY(10px) scale(0.985); transition: transform 0.18s ease;
 }
+.modal-overlay.open .modal { transform: none; }
+/* Tool panels fade in when shown (display none->block restarts the animation). */
+.panel { animation: panelIn 0.14s ease; }
+@keyframes panelIn { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .panel, .modal { animation: none; transition: none; } }
 .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .modal-head b { letter-spacing: 0.22em; text-shadow: 0 0 8px rgba(255, 171, 61, 0.5); }
 .modal-x { background: transparent; color: var(--amber-dim); border: none; font-size: 15px; cursor: pointer; }

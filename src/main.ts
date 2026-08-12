@@ -313,8 +313,8 @@ $<HTMLButtonElement>('#clearp').addEventListener('click', () => sim.clearParticl
 // reality has been left behind.
 const perturbChk = $<HTMLInputElement>('#perturb');
 const nbodyBanner = document.createElement('div');
-nbodyBanner.textContent = '⚠ N-BODY — OFF EPHEMERIS RAILS';
-nbodyBanner.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);padding:6px 16px;background:rgba(190,40,20,0.85);color:#fff;font:600 13px ui-monospace,monospace;letter-spacing:1.5px;border-radius:4px;display:none;z-index:10;pointer-events:none';
+nbodyBanner.className = 'nbody-banner';
+nbodyBanner.textContent = '⚠ N-BODY · OFF EPHEMERIS RAILS';
 app.appendChild(nbodyBanner);
 perturbChk.addEventListener('change', () => {
   sim.setPerturb(perturbChk.checked);
