@@ -3,6 +3,7 @@
 // with a live replanned trajectory and the rocket-equation cost surfaced.
 
 import { Vessel } from '../core/spacecraft/vessel';
+import { requiredPropellant } from '../core/spacecraft/propulsion';
 import { rvToElements } from '../core/orbital/elements';
 import type { Renderer } from '../render/Renderer';
 
@@ -27,14 +28,21 @@ export function createVesselPanel(renderer: Renderer, app: HTMLElement, ctx: () 
     <label style="display:block;margin:4px 0">PROGRADE <span id="v-pl">0</span> m/s <input id="v-pro" type="range" min="-8000" max="8000" step="25" value="0" style="width:100%"></label>
     <label style="display:block;margin:4px 0">NORMAL <span id="v-nl">0</span> m/s <input id="v-nrm" type="range" min="-8000" max="8000" step="25" value="0" style="width:100%"></label>
     <label style="display:block;margin:4px 0">RADIAL <span id="v-rl">0</span> m/s <input id="v-rad" type="range" min="-8000" max="8000" step="25" value="0" style="width:100%"></label>
+    <div style="border-top:1px solid #2a3442;margin:8px 0 6px;padding-top:6px;letter-spacing:1px"><b>ENGINE &amp; MASS</b></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;text-align:center">
+      <label>Isp&nbsp;s<input id="v-isp" type="number" min="100" max="1000000" step="10" value="320" style="width:100%"></label>
+      <label>Dry&nbsp;kg<input id="v-dry" type="number" min="1" step="100" value="1000" style="width:100%"></label>
+      <label>Prop&nbsp;kg<input id="v-prop" type="number" min="0" step="500" value="5000" style="width:100%"></label>
+    </div>
     <div id="v-readout" style="margin-top:6px;color:#8fd"></div>`;
   app.appendChild(panel);
   const $ = <T extends HTMLElement>(s: string) => panel.querySelector<T>(s)!;
   const readout = $<HTMLDivElement>('#v-readout');
   let vessel: Vessel | null = null;
-  let t0 = 0, period = 0;
+  let t0 = 0, period = 0, propMass = 5000;
 
   const time = $<HTMLInputElement>('#v-time'), pro = $<HTMLInputElement>('#v-pro'), nrm = $<HTMLInputElement>('#v-nrm'), rad = $<HTMLInputElement>('#v-rad');
+  const isp = $<HTMLInputElement>('#v-isp'), dry = $<HTMLInputElement>('#v-dry'), prop = $<HTMLInputElement>('#v-prop');
 
   // Readout is computed from the node (not the sliders), so gizmo drags show too.
   function applyReadout(): void {
@@ -45,7 +53,14 @@ export function createVesselPanel(renderer: Renderer, app: HTMLElement, ctx: () 
     vessel.stateAt(node.t + 1, r, v);
     const el = rvToElements(r, v, GM_SUN);
     const peri = el.a * (1 - el.e), apo = el.a * (1 + el.e);
-    readout.innerHTML = `Δv <b style="color:#ff8">${(vessel.totalDeltaV() / 1000).toFixed(2)} km/s</b> · mass ratio ${vessel.massRatio().toFixed(2)}<br>`
+    // Affordability: Δv the plan needs vs Δv this ship+tank can produce (Tsiolkovsky).
+    const need = vessel.totalDeltaV(), have = vessel.budget(propMass);
+    const used = requiredPropellant(vessel.dryMass, need, vessel.isp);
+    const ok = used <= propMass;
+    readout.innerHTML = `Δv need <b style="color:#ff8">${(need / 1000).toFixed(2)}</b> · have <b style="color:#ff8">${(have / 1000).toFixed(2)}</b> km/s<br>`
+      + (ok
+        ? `<span style="color:#7CFF9E">✓ affordable</span> · burns ${used.toFixed(0)} of ${propMass.toFixed(0)} kg`
+        : `<span style="color:#ff6b6b">✗ short</span> · needs ${used.toFixed(0)} kg, have ${propMass.toFixed(0)}`) + '<br>'
       + (el.e < 1 ? `peri ${(peri / AU).toFixed(2)} AU · apo ${(apo / AU).toFixed(2)} AU · e ${el.e.toFixed(2)}` : `hyperbolic escape (e ${el.e.toFixed(2)})`);
   }
   // Slider edit -> write node from sliders, then readout.
@@ -63,7 +78,16 @@ export function createVesselPanel(renderer: Renderer, app: HTMLElement, ctx: () 
     pro.value = String(Math.round(node.prograde)); nrm.value = String(Math.round(node.normal)); rad.value = String(Math.round(node.radial));
     applyReadout();
   }
+  // Engine/mass edit -> write the ship's parameters, then re-check affordability.
+  function editEngine(): void {
+    if (!vessel) return;
+    vessel.isp = Math.max(1, parseFloat(isp.value) || vessel.isp);
+    vessel.dryMass = Math.max(1, parseFloat(dry.value) || vessel.dryMass);
+    propMass = Math.max(0, parseFloat(prop.value) || 0);
+    applyReadout();
+  }
   for (const el of [time, pro, nrm, rad]) el.addEventListener('input', refresh);
+  for (const el of [isp, dry, prop]) el.addEventListener('input', editEngine);
   renderer.onNodeDrag = sync;
   $('#v-close').addEventListener('click', () => { panel.style.display = 'none'; renderer.setVessel(null); vessel = null; });
 
@@ -76,6 +100,7 @@ export function createVesselPanel(renderer: Renderer, app: HTMLElement, ctx: () 
     t0 = c.tdb; period = periodOf(r0, v0);
     vessel.nodes = [{ t: t0 + period * 0.5, prograde: 0, normal: 0, radial: 0 }];
     time.value = '0.5'; pro.value = '0'; nrm.value = '0'; rad.value = '0';
+    editEngine(); // seed isp/dryMass/propMass from the current field values
     renderer.setVessel(vessel);
     panel.style.display = 'block';
     refresh();
