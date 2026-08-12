@@ -15,8 +15,10 @@ import { SOLAR_SYSTEM } from '../src/data/bodies';
 
 const buf = readFileSync(new URL('../public/data/ephemeris.bin', import.meta.url));
 const eph = new De440(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
-const ids = SOLAR_SYSTEM.map((b) => b.id);
-const gm = SOLAR_SYSTEM.map((b) => b.gm);
+// Only the ephemeris bodies (moons are kepler-rail massless, not in DE440).
+const bodies = SOLAR_SYSTEM.filter((b) => !b.relState);
+const ids = bodies.map((b) => b.id);
+const gm = bodies.map((b) => b.gm);
 const N = ids.length;
 
 // Full mutual N-body acceleration (barycentric ICRF; energy is frame-agnostic).
