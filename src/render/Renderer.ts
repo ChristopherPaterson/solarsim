@@ -801,7 +801,7 @@ export class Renderer {
     // Bloom: scene pass + a thresholded bloom so the Sun (and bright stars) glow.
     // Node-based, so it runs on both the WebGPU and WebGL2 backends.
     const scenePass = pass(this.scene, this.camera);
-    const bloomPass = bloom(scenePass, 0.7, 0.5, 0.85); // strength, radius, threshold
+    const bloomPass = bloom(scenePass, 1.2, 0.6, 0.8); // strength, radius, threshold
     this.post = new THREE.PostProcessing(this.renderer);
     this.post.outputNode = scenePass.add(bloomPass);
   }
