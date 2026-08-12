@@ -13,14 +13,20 @@ export interface ManeuverNode {
   radial: number;
 }
 
-// v += Δv expressed in the (prograde, normal, radial) basis of state (r, v).
-function applyDv(r: Float64Array, v: Float64Array, n: ManeuverNode): void {
+/** Prograde/normal/radial unit vectors for a state (r, v). Radial ⟂ velocity, in-plane. */
+export function rtnBasis(r: ArrayLike<number>, v: ArrayLike<number>): { P: number[]; N: number[]; R: number[] } {
   const vn = Math.hypot(v[0], v[1], v[2]) || 1;
   const P = [v[0] / vn, v[1] / vn, v[2] / vn];
   const h = [r[1] * v[2] - r[2] * v[1], r[2] * v[0] - r[0] * v[2], r[0] * v[1] - r[1] * v[0]];
   const hn = Math.hypot(h[0], h[1], h[2]) || 1;
   const N = [h[0] / hn, h[1] / hn, h[2] / hn];
-  const R = [N[1] * P[2] - N[2] * P[1], N[2] * P[0] - N[0] * P[2], N[0] * P[1] - N[1] * P[0]]; // in-plane ⟂ velocity
+  const R = [N[1] * P[2] - N[2] * P[1], N[2] * P[0] - N[0] * P[2], N[0] * P[1] - N[1] * P[0]];
+  return { P, N, R };
+}
+
+// v += Δv expressed in the (prograde, normal, radial) basis of state (r, v).
+function applyDv(r: Float64Array, v: Float64Array, n: ManeuverNode): void {
+  const { P, N, R } = rtnBasis(r, v);
   for (let k = 0; k < 3; k++) v[k] += n.prograde * P[k] + n.normal * N[k] + n.radial * R[k];
 }
 

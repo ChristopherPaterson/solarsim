@@ -26,7 +26,7 @@ import type { Body } from '../core/types';
 import { sampleOrbitPathRV } from '../core/orbital/elements';
 import { eqjToEcl } from '../core/frames';
 import { IAS15 } from '../core/integrate/ias15';
-import { Vessel } from '../core/spacecraft/vessel';
+import { Vessel, rtnBasis } from '../core/spacecraft/vessel';
 import { StarField } from './StarField';
 
 const GM_SUN = 1.32712440018e20;
@@ -151,6 +151,13 @@ export class Renderer {
   private vesselLine!: THREE.Line;
   private nodeMarkers!: THREE.Points;
   private static VTRAJ = 320;
+  // Maneuver-node gizmo: 3 draggable handles along prograde/normal/radial.
+  private handles: THREE.Mesh[] = [];
+  private gizmoAxis = -1;           // which axis is being dragged (0=pro,1=nrm,2=rad)
+  private gizmoNode = new THREE.Vector3();  // node position, scene coords
+  private gizmoDirs = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+  private gizmoL = 1;               // current handle rest length (scene m)
+  onNodeDrag: (() => void) | null = null;
   private placeAbs = new THREE.Vector3(); // placement point (absolute)
   private insVel: [number, number, number] = [0, 0, 0];
   private dragging = false;
@@ -211,6 +218,18 @@ export class Renderer {
     this.nodeMarkers = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(8 * 3), 3)),
       new THREE.PointsMaterial({ color: 0xffcc33, size: 11, sizeAttenuation: false, depthTest: false }));
     this.nodeMarkers.frustumCulled = false; this.nodeMarkers.visible = false; this.scene.add(this.nodeMarkers);
+    // Node gizmo handles: prograde (green), normal (purple), radial (cyan).
+    const hcol = [0x66ff88, 0xcc77ff, 0x66ddff];
+    for (let a = 0; a < 3; a++) {
+      const h = new THREE.Mesh(this.unit, new THREE.MeshBasicMaterial({ color: hcol[a], depthTest: false, transparent: true }));
+      h.frustumCulled = false; h.visible = false; h.renderOrder = 999;
+      h.userData.axis = a;
+      this.handles.push(h); this.scene.add(h);
+    }
+    const el = this.renderer.domElement;
+    el.addEventListener('pointerdown', (e) => this.onGizmoDown(e));
+    el.addEventListener('pointermove', (e) => this.onGizmoMove(e));
+    window.addEventListener('pointerup', () => this.onGizmoUp());
     window.addEventListener('resize', () => this.onResize());
   }
 
@@ -218,6 +237,7 @@ export class Renderer {
     this.vessel = v;
     const on = v !== null;
     this.vesselLine.visible = on; this.vesselMarker.visible = on; this.nodeMarkers.visible = on;
+    for (const h of this.handles) h.visible = on;
   }
 
   private vr = new Float64Array(3); private vv = new Float64Array(3);
@@ -261,6 +281,61 @@ export class Renderer {
       na[k * 3] = this.vr[0] + ox; na[k * 3 + 1] = this.vr[1] + oy; na[k * 3 + 2] = this.vr[2] + oz;
     });
     nm.needsUpdate = true; this.nodeMarkers.geometry.setDrawRange(0, Math.min(8, ves.nodes.length));
+
+    // Gizmo handles on the editable node (nodes[0]). Position = node + axis*(L + dv/K),
+    // L screen-scaled so handles stay grabbable and roughly constant on screen.
+    if (ves.nodes.length && this.gizmoAxis < 0) {
+      const node = ves.nodes[0];
+      ves.stateAt(node.t, this.vr, this.vv); // pre-burn state -> basis
+      this.gizmoNode.set(this.vr[0] + ox, this.vr[1] + oy, this.vr[2] + oz);
+      const { P, N, R } = rtnBasis(this.vr, this.vv);
+      const dirs = [P, N, R], comps = [node.prograde, node.normal, node.radial];
+      const L = 0.12 * this.camera.position.distanceTo(this.gizmoNode);
+      this.gizmoL = L; const K = L / 5000; // 5000 m/s spans one rest-length
+      for (let a = 0; a < 3; a++) {
+        this.gizmoDirs[a].set(dirs[a][0], dirs[a][1], dirs[a][2]);
+        this.handles[a].position.copy(this.gizmoNode).addScaledVector(this.gizmoDirs[a], L + comps[a] * K);
+        this.handles[a].scale.setScalar(0.05 * L);
+      }
+    }
+  }
+
+  private setNdc(e: PointerEvent): void {
+    const r = this.renderer.domElement.getBoundingClientRect();
+    this.ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  }
+
+  private onGizmoDown(e: PointerEvent): void {
+    if (!this.vessel || !this.vessel.nodes.length || this.inserting || this.fly) return;
+    this.setNdc(e); this.ray.setFromCamera(this.ndc, this.camera);
+    const hit = this.ray.intersectObjects(this.handles, false)[0];
+    if (!hit) return;
+    this.gizmoAxis = hit.object.userData.axis as number;
+    this.controls.enabled = false;
+  }
+
+  private onGizmoMove(e: PointerEvent): void {
+    if (this.gizmoAxis < 0 || !this.vessel) return;
+    this.setNdc(e); this.ray.setFromCamera(this.ndc, this.camera);
+    // Signed distance along the axis of the point closest to the pointer ray.
+    const D = this.gizmoDirs[this.gizmoAxis], E = this.ray.ray.direction;
+    const w0x = this.gizmoNode.x - this.ray.ray.origin.x, w0y = this.gizmoNode.y - this.ray.ray.origin.y, w0z = this.gizmoNode.z - this.ray.ray.origin.z;
+    const b = D.x * E.x + D.y * E.y + D.z * E.z;
+    const denom = 1 - b * b;
+    if (Math.abs(denom) < 1e-6) return; // ray ~parallel to the axis
+    const d = D.x * w0x + D.y * w0y + D.z * w0z, ee = E.x * w0x + E.y * w0y + E.z * w0z;
+    const s = (b * ee - d) / denom; // distance along the axis from the node
+    let dv = (s - this.gizmoL) / (this.gizmoL / 5000);
+    dv = Math.max(-8000, Math.min(8000, dv));
+    const node = this.vessel.nodes[0];
+    if (this.gizmoAxis === 0) node.prograde = dv; else if (this.gizmoAxis === 1) node.normal = dv; else node.radial = dv;
+    this.onNodeDrag?.();
+  }
+
+  private onGizmoUp(): void {
+    if (this.gizmoAxis < 0) return;
+    this.gizmoAxis = -1;
+    this.controls.enabled = !this.inserting;
   }
 
   /** Load Voyager 1's baked trajectory ([tdb_s, x, y, z] per sample, m). */

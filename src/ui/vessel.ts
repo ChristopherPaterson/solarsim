@@ -36,22 +36,35 @@ export function createVesselPanel(renderer: Renderer, app: HTMLElement, ctx: () 
 
   const time = $<HTMLInputElement>('#v-time'), pro = $<HTMLInputElement>('#v-pro'), nrm = $<HTMLInputElement>('#v-nrm'), rad = $<HTMLInputElement>('#v-rad');
 
+  // Readout is computed from the node (not the sliders), so gizmo drags show too.
+  function applyReadout(): void {
+    if (!vessel) return;
+    const node = vessel.nodes[0];
+    $('#v-pl').textContent = node.prograde.toFixed(0); $('#v-nl').textContent = node.normal.toFixed(0); $('#v-rl').textContent = node.radial.toFixed(0);
+    const r = new Float64Array(3), v = new Float64Array(3);
+    vessel.stateAt(node.t + 1, r, v);
+    const el = rvToElements(r, v, GM_SUN);
+    const peri = el.a * (1 - el.e), apo = el.a * (1 + el.e);
+    readout.innerHTML = `Δv <b style="color:#ff8">${(vessel.totalDeltaV() / 1000).toFixed(2)} km/s</b> · mass ratio ${vessel.massRatio().toFixed(2)}<br>`
+      + (el.e < 1 ? `peri ${(peri / AU).toFixed(2)} AU · apo ${(apo / AU).toFixed(2)} AU · e ${el.e.toFixed(2)}` : `hyperbolic escape (e ${el.e.toFixed(2)})`);
+  }
+  // Slider edit -> write node from sliders, then readout.
   function refresh(): void {
     if (!vessel) return;
     const node = vessel.nodes[0];
     node.t = t0 + parseFloat(time.value) * period;
     node.prograde = parseFloat(pro.value); node.normal = parseFloat(nrm.value); node.radial = parseFloat(rad.value);
-    $('#v-pl').textContent = pro.value; $('#v-nl').textContent = nrm.value; $('#v-rl').textContent = rad.value;
-    // Resulting orbit just after the burn.
-    const r = new Float64Array(3), v = new Float64Array(3);
-    vessel.stateAt(node.t + 1, r, v);
-    const el = rvToElements(r, v, GM_SUN);
-    const peri = el.a * (1 - el.e), apo = el.a * (1 + el.e);
-    const dv = vessel.totalDeltaV();
-    readout.innerHTML = `Δv <b style="color:#ff8">${(dv / 1000).toFixed(2)} km/s</b> · mass ratio ${vessel.massRatio().toFixed(2)}<br>`
-      + (el.e < 1 ? `peri ${(peri / AU).toFixed(2)} AU · apo ${(apo / AU).toFixed(2)} AU · e ${el.e.toFixed(2)}` : `hyperbolic escape (e ${el.e.toFixed(2)})`);
+    applyReadout();
+  }
+  // Gizmo drag mutated the node -> reflect it in the sliders + readout.
+  function sync(): void {
+    if (!vessel) return;
+    const node = vessel.nodes[0];
+    pro.value = String(Math.round(node.prograde)); nrm.value = String(Math.round(node.normal)); rad.value = String(Math.round(node.radial));
+    applyReadout();
   }
   for (const el of [time, pro, nrm, rad]) el.addEventListener('input', refresh);
+  renderer.onNodeDrag = sync;
   $('#v-close').addEventListener('click', () => { panel.style.display = 'none'; renderer.setVessel(null); vessel = null; });
 
   return function addVessel(): void {
