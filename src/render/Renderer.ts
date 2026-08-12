@@ -37,7 +37,8 @@ const GM_SUN = 1.32712440018e20;
 const V_DRAG_SCALE = 3e-7; // world-metres of drag -> m/s of insert velocity
 export type InsertCommit = (x: [number, number, number], v: [number, number, number]) => void;
 
-const ORBIT_SEGMENTS = 256;
+const ORBIT_SEGMENTS = 256;             // baseline segment count (equal-turn, ~1.4°/segment)
+const MAX_ORBIT_SEGMENTS = 2048;        // ceiling when zoomed close to an orbit (~0.18°/segment)
 const RING_SEGMENTS = 256;
 const MAX_PARTICLES = 64;
 const TRAIL_LEN = 600; // breadcrumb points per test particle
@@ -1086,12 +1087,12 @@ export class Renderer {
       const geom = new THREE.BufferGeometry();
       // N+1 points: the loop is closed by repeating the first vertex (WebGPU-
       // Renderer has no LineLoop).
-      geom.setAttribute('position', new THREE.BufferAttribute(new Float32Array((ORBIT_SEGMENTS + 1) * 3), 3));
+      geom.setAttribute('position', new THREE.BufferAttribute(new Float32Array((MAX_ORBIT_SEGMENTS + 1) * 3), 3));
       const mat = new THREE.LineBasicMaterial({ color: def.appearance.colour, transparent: true, opacity: 0.3 });
       const line = new THREE.Line(geom, mat);
       line.frustumCulled = false; // spans the whole orbit; culling by centre is wrong
       this.scene.add(line);
-      this.orbits.push({ idx: i, centerIdx, mu, line, scratch: new Float64Array(ORBIT_SEGMENTS * 3) });
+      this.orbits.push({ idx: i, centerIdx, mu, line, scratch: new Float64Array(MAX_ORBIT_SEGMENTS * 3) });
     });
     // Spheres of influence: planets only (not the Sun or the Moon). k = (m/M)^(2/5),
     // so r_SOI = k · (planet's distance from the Sun) — computed live in update().
@@ -1215,29 +1216,35 @@ export class Renderer {
   private updateOrbits(state: Float64Array): void {
     const r = new Float64Array(3), v = new Float64Array(3);
     let orbitFar = 0;
+    const camPos = this.camera.position;
     for (const o of this.orbits) {
       o.line.visible = this.showOrbits;
       if (!this.showOrbits) continue;
       const b = o.idx * 6, cb = o.centerIdx * 6;
       for (let k = 0; k < 3; k++) { r[k] = state[b + k] - state[cb + k]; v[k] = state[b + 3 + k] - state[cb + 3 + k]; }
-      if (!sampleOrbitPathRV(r, v, o.mu, ORBIT_SEGMENTS, o.scratch)) { o.line.visible = false; continue; }
+      // Adaptive resolution: base 256 already draws a smooth ellipse, but zoomed in
+      // close to an orbit each chord's on-screen bulge (sagitta ∝ curvature·(1/n)²)
+      // grows past a pixel and shows as facets. Ramp the segment count up ~√(k·orbit
+      // radius / camera-to-body distance) so the facet stays ~constant on screen; the
+      // k crossover keeps base 256 for whole-orbit views and only lifts it once you're
+      // within ~1.5% of the orbit radius. Clamped so far orbits stay cheap.
+      const rMag = Math.hypot(r[0], r[1], r[2]);
+      const camDist = Math.max(camPos.distanceTo(this.bodies[o.idx].mesh.position), 1);
+      const n = Math.max(ORBIT_SEGMENTS, Math.min(MAX_ORBIT_SEGMENTS, Math.round(ORBIT_SEGMENTS * Math.sqrt(0.014 * rMag / camDist))));
+      if (!sampleOrbitPathRV(r, v, o.mu, n, o.scratch)) { o.line.visible = false; continue; }
       const pos = o.line.geometry.getAttribute('position') as THREE.BufferAttribute;
       const arr = pos.array as Float32Array;
-      // Store points as focus-relative scene coords (centre - focus + ellipse),
-      // computed in Float64 then narrowed. Storing them centre-relative (values up
-      // to tens of AU) burns all the Float32 mantissa, so an outer planet's orbit
-      // line drifted visibly off the body at zoom. Near-focus vertices are now
-      // small-magnitude and land exactly on the body.
+      // Focus-relative scene coords (centre - focus + ellipse), Float64 then narrowed,
+      // so near-focus vertices keep full Float32 precision and land on the body.
       const ox = state[cb] - this.focusAbs.x, oy = state[cb + 1] - this.focusAbs.y, oz = state[cb + 2] - this.focusAbs.z;
-      for (let k = 0; k < o.scratch.length; k += 3) {
+      for (let k = 0; k < n * 3; k += 3) {
         const x = o.scratch[k] + ox, y = o.scratch[k + 1] + oy, z = o.scratch[k + 2] + oz;
         arr[k] = x; arr[k + 1] = y; arr[k + 2] = z;
         const d = Math.hypot(x, y, z); if (d > orbitFar) orbitFar = d;
       }
-      arr[o.scratch.length] = arr[0]; // close the loop
-      arr[o.scratch.length + 1] = arr[1];
-      arr[o.scratch.length + 2] = arr[2];
+      arr[n * 3] = arr[0]; arr[n * 3 + 1] = arr[1]; arr[n * 3 + 2] = arr[2]; // close the loop
       pos.needsUpdate = true;
+      o.line.geometry.setDrawRange(0, n + 1);
       o.line.position.set(0, 0, 0);
     }
     this.orbitFar = orbitFar; // farthest visible orbit vertex from focus (for the far plane)
