@@ -1251,6 +1251,9 @@ export class Renderer {
       // within ~1.5% of the orbit radius. Clamped so far orbits stay cheap.
       const rMag = Math.hypot(r[0], r[1], r[2]);
       const camDist = Math.max(camPos.distanceTo(this.bodies[o.idx].mesh.position), 1);
+      // Declutter when zoomed in: an orbit whose body is far, far beyond the focus
+      // (camera-to-body ≫ camera-to-focus) is just noise crossing a close-up view.
+      if (camDist > 60 * camPos.length()) { o.line.visible = false; continue; }
       const n = Math.max(ORBIT_SEGMENTS, Math.min(MAX_ORBIT_SEGMENTS, Math.round(ORBIT_SEGMENTS * Math.sqrt(0.014 * rMag / camDist))));
       if (!sampleOrbitPathRV(r, v, o.mu, n, o.scratch)) { o.line.visible = false; continue; }
       const pos = o.line.geometry.getAttribute('position') as THREE.BufferAttribute;
@@ -1432,13 +1435,17 @@ export class Renderer {
     // the depth buffer spends its precision where it is needed this frame.
     const camPos = this.camera.position;
     this.scene.updateMatrixWorld(); // fold in any co-rotating-frame scene rotation
-    let dmax = 0;
+    let dmax = 0, dmin = Infinity;
     for (const b of this.bodies) {
-      const d = camPos.distanceTo(b.mesh.getWorldPosition(this.wp)) + b.mesh.scale.x;
-      if (d > dmax) dmax = d;
+      const dc = camPos.distanceTo(b.mesh.getWorldPosition(this.wp)), rr = b.mesh.scale.x;
+      if (dc + rr > dmax) dmax = dc + rr;
+      if (dc - rr < dmin) dmin = dc - rr; // signed distance to the nearest surface
     }
     const camDist = camPos.length(); // distance to focus at origin
-    this.camera.near = Math.max(1, camDist * 0.02);
+    // Near plane sits just in front of the nearest surface so zooming to a body's
+    // surface doesn't clip into it (camDist·0.02 alone clips the front of the disc
+    // at surface range); still capped small so distant bodies aren't near-clipped.
+    this.camera.near = Math.max(1, Math.min(camDist * 0.02, Math.max(dmin * 0.5, 1)));
     // Reach past the farthest visible orbit vertex too, so a long-period comet's
     // path (aphelion hundreds of AU) isn't clipped by the far plane. The log depth
     // buffer keeps precision across the wide near:far this opens up.
