@@ -216,10 +216,10 @@ export class Renderer {
       new THREE.LineBasicMaterial({ color: 0x66ddff, transparent: true, opacity: 0.9 }));
     this.vesselLine.frustumCulled = false; this.vesselLine.visible = false; this.scene.add(this.vesselLine);
     this.vesselMarker = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3)),
-      new THREE.PointsMaterial({ color: 0xffffff, size: 10, sizeAttenuation: false, depthTest: false }));
+      new THREE.PointsMaterial({ color: 0xffffff, size: 10, sizeAttenuation: false }));
     this.vesselMarker.frustumCulled = false; this.vesselMarker.visible = false; this.scene.add(this.vesselMarker);
     this.nodeMarkers = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(8 * 3), 3)),
-      new THREE.PointsMaterial({ color: 0xffcc33, size: 11, sizeAttenuation: false, depthTest: false }));
+      new THREE.PointsMaterial({ color: 0xffcc33, size: 11, sizeAttenuation: false }));
     this.nodeMarkers.frustumCulled = false; this.nodeMarkers.visible = false; this.scene.add(this.nodeMarkers);
     // Node gizmo handles: prograde (green), normal (purple), radial (cyan).
     const hcol = [0x66ff88, 0xcc77ff, 0x66ddff];
@@ -387,7 +387,7 @@ export class Renderer {
       new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.85 }));
     line.frustumCulled = false; line.geometry.setDrawRange(0, n); this.scene.add(line);
     const marker = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3)),
-      new THREE.PointsMaterial({ color, size: 8, sizeAttenuation: false, depthTest: false, transparent: true }));
+      new THREE.PointsMaterial({ color, size: 8, sizeAttenuation: false, transparent: true }));
     marker.frustumCulled = false; this.scene.add(marker);
     this.missions.push({ name, line, marker, abs, times });
   }
@@ -410,7 +410,7 @@ export class Renderer {
     }
     const points = new THREE.Points(
       new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(satrecs.length * 3), 3)),
-      new THREE.PointsMaterial({ color, size, sizeAttenuation: false, depthTest: false, transparent: true }));
+      new THREE.PointsMaterial({ color, size, sizeAttenuation: false, transparent: true })); // depth-test: occluded behind Earth
     points.frustumCulled = false; points.visible = false; points.geometry.setDrawRange(0, 0); this.scene.add(points);
     this.satGroups.push({ name, satrecs, names, points, visible: false, drawIdx: [], drawCount: 0 });
   }
@@ -582,7 +582,7 @@ export class Renderer {
     g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_PARTICLES * 3), 3));
     g.setDrawRange(0, 0);
     this.particlePoints = new THREE.Points(g, new THREE.PointsMaterial({
-      color: 0x66ffcc, size: 7, sizeAttenuation: false, depthTest: false, transparent: true,
+      color: 0x66ffcc, size: 7, sizeAttenuation: false, transparent: true,
     }));
     this.particlePoints.frustumCulled = false;
     this.scene.add(this.particlePoints);
@@ -782,6 +782,10 @@ export class Renderer {
       }
       if (b.def.id === 'Sun') this.sunLight.position.set(px, py, pz);
     }
+    // Brighter sunlight at true/near-true scale, where planets are small and read
+    // as dim; eased down as the size exaggeration grows.
+    const logE = Math.log10(Math.max(1, exaggeration));
+    this.sunLight.intensity = 1.5 + 2.2 * Math.max(0, Math.min(1, (2 - logE) / 2));
     if (this.sunDirNode && this.earthIdx >= 0) {
       // Scene-frame direction from Earth to the Sun for the night-side gate.
       this.sunDirNode.value

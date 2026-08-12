@@ -24,7 +24,8 @@ const nBodies = bodyIds.length;
 // --- initial state from URL (or now) ---------------------------------------
 const url = readState();
 let focusIdx = Math.max(0, bodyIds.indexOf(url.focus ?? 'Earth'));
-let exaggeration = url.scale ?? 1500;
+const urlScale = url.scale ?? 1; // default: real (true) scale
+let exaggeration = urlScale > 1 ? urlScale : 1500; // value used when TRUE SCALE is toggled off
 const startTdb = url.t ?? dateToTdb(new Date());
 let rate = url.rate ?? 0;
 
@@ -90,6 +91,14 @@ const debugChk = $<HTMLInputElement>('#debug');
 $<HTMLSpanElement>('#backend').textContent = renderer.isWebGPU ? 'WEBGPU' : 'WEBGL2';
 focusSel.value = String(focusIdx);
 scaleInput.value = String(Math.log10(exaggeration));
+trueScale.checked = urlScale <= 1; // default to real scale unless the URL exaggerates
+// At true scale the focus body is tiny; frame it at ~12 radii so it's actually
+// visible on load (the default far camera suits the exaggerated view, not this).
+if (trueScale.checked) {
+  const d = SOLAR_SYSTEM[focusIdx].radius * 12;
+  renderer.camera.position.set(0, d * 0.375, d * 0.927);
+  renderer.controls.update();
+}
 rateInput.value = rate === 0 ? '0' : String(Math.log10(rate));
 setRateLabel(rate);
 
