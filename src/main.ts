@@ -30,6 +30,7 @@ const renderer = new Renderer(app);
 await renderer.init();
 renderer.setBodies(SOLAR_SYSTEM);
 renderer.loadStars('data/stars.bin', tdbToDate(startTdb as never).getFullYear()).catch((e) => console.warn('stars:', e));
+renderer.loadVoyager('data/voyager1.bin').catch((e) => console.warn('voyager:', e));
 
 const state = new Float64Array(nBodies * 6);
 let curTdb = startTdb;
@@ -50,6 +51,7 @@ hud.innerHTML = `
   <div class="row"><button id="ghost">GHOST FOCUS</button><button id="clearp">CLEAR PARTICLES</button></div>
   <label class="row"><span>PERTURB ALL (N-body)</span><input type="checkbox" id="perturb"></label>
   <div class="row"><button id="porkchop">PORKCHOP → MARS</button></div>
+  <label class="row"><span>VOYAGER 1</span><input type="checkbox" id="voyager" checked></label>
   <label class="row"><span>DEBUG</span><input type="checkbox" id="debug"></label>
   <div class="mono" id="readout"></div>
 `;
@@ -130,6 +132,9 @@ perturbChk.addEventListener('change', () => {
 
 const togglePorkchop = createPorkchopPanel(sim, () => curTdb, app);
 $<HTMLButtonElement>('#porkchop').addEventListener('click', togglePorkchop);
+
+const voyagerChk = $<HTMLInputElement>('#voyager');
+voyagerChk.addEventListener('change', () => renderer.setVoyagerVisible(voyagerChk.checked));
 
 flyChk.addEventListener('change', () => {
   if (flyChk.checked && insertChk.checked) { insertChk.checked = false; renderer.setInsertMode(false); }

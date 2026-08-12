@@ -139,6 +139,11 @@ export class Renderer {
   private insertOnCommit: InsertCommit | null = null;
   private ray = new THREE.Raycaster();
   private ndc = new THREE.Vector2();
+  // Voyager 1 real trajectory (P3.5): baked polyline + a marker at the current epoch.
+  private voyagerLine!: THREE.Line;
+  private voyagerMarker!: THREE.Points;
+  private voyagerAbs: Float64Array | null = null; // n*3 barycentric ecliptic m
+  private voyagerTimes: Float64Array | null = null; // n (TDB s)
   private placeAbs = new THREE.Vector3(); // placement point (absolute)
   private insVel: [number, number, number] = [0, 0, 0];
   private dragging = false;
@@ -179,7 +184,59 @@ export class Renderer {
 
     this.setupParticles();
     this.setupInsert();
+    this.voyagerLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xff5aa0, transparent: true, opacity: 0.85 }));
+    this.voyagerLine.frustumCulled = false; this.voyagerLine.visible = false;
+    this.scene.add(this.voyagerLine);
+    this.voyagerMarker = new THREE.Points(
+      new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3)),
+      new THREE.PointsMaterial({ color: 0xff9ad0, size: 9, sizeAttenuation: false, depthTest: false, transparent: true }),
+    );
+    this.voyagerMarker.frustumCulled = false; this.voyagerMarker.visible = false;
+    this.scene.add(this.voyagerMarker);
     window.addEventListener('resize', () => this.onResize());
+  }
+
+  /** Load Voyager 1's baked trajectory ([tdb_s, x, y, z] per sample, m). */
+  async loadVoyager(url: string): Promise<void> {
+    const buf = await (await fetch(url)).arrayBuffer();
+    const dv = new DataView(buf);
+    const n = dv.getUint32(0, true);
+    const times = new Float64Array(n), abs = new Float64Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      const o = 4 + i * 32;
+      times[i] = dv.getFloat64(o, true);
+      abs[i * 3] = dv.getFloat64(o + 8, true); abs[i * 3 + 1] = dv.getFloat64(o + 16, true); abs[i * 3 + 2] = dv.getFloat64(o + 24, true);
+    }
+    this.voyagerTimes = times; this.voyagerAbs = abs;
+    this.voyagerLine.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+    this.voyagerLine.geometry.setDrawRange(0, n);
+    this.voyagerLine.visible = true; this.voyagerMarker.visible = true;
+  }
+
+  setVoyagerVisible(on: boolean): void {
+    if (this.voyagerAbs) { this.voyagerLine.visible = on; this.voyagerMarker.visible = on; }
+  }
+
+  // Rewrite the trajectory line offset by focus, and place the epoch marker.
+  private updateVoyager(tdb: number): void {
+    const abs = this.voyagerAbs, times = this.voyagerTimes;
+    if (!abs || !times || !this.voyagerLine.visible) return;
+    const n = times.length, fx = this.focusAbs.x, fy = this.focusAbs.y, fz = this.focusAbs.z;
+    const pos = this.voyagerLine.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const arr = pos.array as Float32Array;
+    for (let i = 0; i < n; i++) { arr[i * 3] = abs[i * 3] - fx; arr[i * 3 + 1] = abs[i * 3 + 1] - fy; arr[i * 3 + 2] = abs[i * 3 + 2] - fz; }
+    pos.needsUpdate = true;
+    // Marker: linear-interp Voyager's position at tdb (hidden outside the span).
+    const mk = this.voyagerMarker.geometry.getAttribute('position') as THREE.BufferAttribute;
+    if (tdb < times[0] || tdb > times[n - 1]) { this.voyagerMarker.visible = false; }
+    else {
+      this.voyagerMarker.visible = true;
+      let lo = 0, hi = n - 1;
+      while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (times[mid] <= tdb) lo = mid; else hi = mid; }
+      const f = (tdb - times[lo]) / (times[hi] - times[lo] || 1);
+      for (let k = 0; k < 3; k++) (mk.array as Float32Array)[k] = abs[lo * 3 + k] + (abs[hi * 3 + k] - abs[lo * 3 + k]) * f - [fx, fy, fz][k];
+      mk.needsUpdate = true;
+    }
   }
 
   private setupInsert(): void {
@@ -467,6 +524,7 @@ export class Renderer {
       this.earthClouds.quaternion.copy(this.spin);
     }
     this.updateOrbits(state);
+    this.updateVoyager(tdb);
     if (this.starField) this.starField.update(this.camera);
 
     const now = performance.now();
