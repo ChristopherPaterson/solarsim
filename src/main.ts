@@ -6,6 +6,7 @@ import { readState, writeState } from './ui/urlState';
 import { createPorkchopPanel } from './ui/porkchop';
 import { createVesselPanel } from './ui/vessel';
 import { createTransferPanel } from './ui/transfer';
+import { createDvLadderPanel } from './ui/dvladder';
 import './style.css';
 
 const app = document.getElementById('app')!;
@@ -55,6 +56,7 @@ hud.innerHTML = `
   <div class="row"><button id="porkchop">PORKCHOP → MARS</button></div>
   <div class="row"><button id="vessel">+ VESSEL (from Earth)</button></div>
   <div class="row"><button id="transfer">TRANSFER PLANNER</button></div>
+  <div class="row"><button id="dvladder">Δv LADDER</button></div>
   <label class="row"><span>VOYAGER 1</span><input type="checkbox" id="voyager" checked></label>
   <label class="row"><span>DEBUG</span><input type="checkbox" id="debug"></label>
   <div class="mono" id="readout"></div>
@@ -146,6 +148,9 @@ $<HTMLButtonElement>('#vessel').addEventListener('click', addVessel);
 
 const toggleTransfer = createTransferPanel(renderer, app, () => ({ state, bodyIds, sunIdx, tdb: curTdb }));
 $<HTMLButtonElement>('#transfer').addEventListener('click', toggleTransfer);
+
+const toggleDvLadder = createDvLadderPanel(app);
+$<HTMLButtonElement>('#dvladder').addEventListener('click', toggleDvLadder);
 
 flyChk.addEventListener('change', () => {
   if (flyChk.checked && insertChk.checked) { insertChk.checked = false; renderer.setInsertMode(false); }
