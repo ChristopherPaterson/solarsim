@@ -27,6 +27,9 @@ export class SimClient {
     this.nBodies = bodyIds.length;
     const isolated = globalThis.crossOriginIsolated && typeof SharedArrayBuffer !== 'undefined';
     this.worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
+    // Surface a dead worker (module load failure, or the ephemeris fetch failing)
+    // so the app can show a message instead of a silently frozen scene.
+    this.worker.onerror = (e) => { console.error('sim worker:', e.message); this.onError?.('The simulation engine failed to start.'); };
 
     if (isolated) {
       this.shared = createSharedState(this.nBodies);
@@ -45,6 +48,8 @@ export class SimClient {
         this.particles = m.pos; this.particleCount = m.pos.length / 3;
       } else if (m.type === 'porkchop') {
         this.onPorkchop?.(m);
+      } else if ((m as { type: string }).type === 'error') {
+        this.onError?.((m as unknown as { msg: string }).msg);
       }
     };
 
@@ -109,6 +114,7 @@ export class SimClient {
   particlePositions(): Float64Array { return this.particles; }
 
   onPorkchop: ((r: PorkchopResult) => void) | null = null;
+  onError: ((msg: string) => void) | null = null;
 
   /** Request a porkchop grid (Earth->target) over a departure×arrival window. */
   requestPorkchop(target: string, depStart: number, depStep: number, arrStart: number, arrStep: number, n: number): void {

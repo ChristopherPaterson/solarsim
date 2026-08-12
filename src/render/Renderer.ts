@@ -174,7 +174,7 @@ export class Renderer {
   private horizonLine!: THREE.Line;
   private cardinals: { el: HTMLDivElement; getDir: () => THREE.Vector3 }[] = [];
   private obsDrag: { x: number; y: number } | null = null;
-  private post: THREE.PostProcessing | null = null;
+  private post: THREE.RenderPipeline | null = null;
   private spin = new THREE.Quaternion(); // scratch, reused per body per frame
   private vM = new THREE.Vector3(); private vZ = new THREE.Vector3(); private rotM4 = new THREE.Matrix4(); // body-orientation scratch
   private lastUpdate = performance.now();
@@ -983,7 +983,7 @@ export class Renderer {
     // Node-based, so it runs on both the WebGPU and WebGL2 backends.
     const scenePass = pass(this.scene, this.camera);
     const bloomPass = bloom(scenePass, 1.2, 0.6, 0.8); // strength, radius, threshold
-    this.post = new THREE.PostProcessing(this.renderer);
+    this.post = new THREE.RenderPipeline(this.renderer);
     this.post.outputNode = scenePass.add(bloomPass);
   }
 

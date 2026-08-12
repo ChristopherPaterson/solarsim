@@ -247,14 +247,17 @@ self.onmessage = (e: MessageEvent<SimCommand>) => {
       // Load the baked DE440 ephemeris, then start ticking (the main thread just
       // reads zeros until the first frame publishes, same as before).
       fetch(msg.ephUrl)
-        .then((r) => r.arrayBuffer())
+        .then((r) => { if (!r.ok) throw new Error(`ephemeris ${r.status}`); return r.arrayBuffer(); })
         .then((buf) => {
           eph = new De440(buf);
           lastReal = performance.now();
           publishFrame(); // first frame as soon as the ephemeris is ready
           setInterval(tick, TICK_MS);
         })
-        .catch((err) => console.error('SolarSim: ephemeris load failed', err));
+        .catch((err) => {
+          console.error('SolarSim: ephemeris load failed', err);
+          (self as unknown as Worker).postMessage({ type: 'error', msg: 'Failed to load the ephemeris data — the simulation can’t start.' });
+        });
       break;
     case 'setRate':
       rate = msg.rate;

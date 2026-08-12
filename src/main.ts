@@ -36,8 +36,20 @@ const rateNow = () => (paused ? 0 : warp);
 
 const sim = new SimClient(bodyIds, startTdb, rateNow());
 const renderer = new Renderer(app);
-await renderer.init();
+try {
+  await renderer.init();
+} catch (e) {
+  const boot = document.getElementById('boot');
+  if (boot) boot.innerHTML = '<div style="max-width:340px;text-align:center;text-transform:none;letter-spacing:normal;line-height:1.6;color:#cfe1ee"><b style="color:#ffab3d;letter-spacing:.2em">SOLARSIM</b><br><br>This browser can\'t run the 3D engine.<br>SolarSim needs WebGPU or WebGL2 — try a recent Chrome, Edge or Safari on a desktop or newer phone.</div>';
+  throw e;
+}
 renderer.setBodies(SOLAR_SYSTEM);
+// If the sim engine dies (worker load or ephemeris fetch failure), show it in the
+// splash instead of a silently frozen scene.
+sim.onError = (msg) => {
+  const boot = document.getElementById('boot');
+  if (boot) { boot.classList.remove('gone'); boot.innerHTML = `<div style="max-width:340px;text-align:center;text-transform:none;letter-spacing:normal;line-height:1.6;color:#cfe1ee"><b style="color:#ffab3d;letter-spacing:.2em">SOLARSIM</b><br><br>${msg}<br>Please reload the page.</div>`; }
+};
 renderer.loadStars('data/stars.bin', tdbToDate(startTdb as never).getFullYear()).catch((e) => console.warn('stars:', e));
 
 // Real mission trajectories (JPL): [name, label, colour, on-by-default].
@@ -175,6 +187,8 @@ app.appendChild(helpBtn);
 app.appendChild(helpModal);
 const toggleHelp = (show?: boolean) => helpModal.classList.toggle('open', show);
 helpBtn.addEventListener('click', () => toggleHelp());
+// First visit: open the controls once so a newcomer knows the interactions exist.
+try { if (!localStorage.getItem('solarsim.seen')) { setTimeout(() => toggleHelp(true), 900); localStorage.setItem('solarsim.seen', '1'); } } catch { /* private mode */ }
 helpModal.addEventListener('click', (e) => { if (e.target === helpModal || (e.target as HTMLElement).classList.contains('modal-x')) toggleHelp(false); });
 
 const $ = <T extends HTMLElement>(sel: string) => hud.querySelector<T>(sel)!;
@@ -502,6 +516,14 @@ let frames = 0;
 let lastFpsT = performance.now();
 let lastDateSync = 0;
 
+let bootCleared = false;
+function clearBoot() {
+  if (bootCleared) return;
+  bootCleared = true;
+  const boot = document.getElementById('boot');
+  if (boot) { boot.classList.add('gone'); setTimeout(() => boot.remove(), 600); }
+}
+setTimeout(clearBoot, 6000); // fallback: never leave the splash stuck if the sim is slow/unavailable
 renderer.renderer.setAnimationLoop(() => {
   curTdb = sim.readLatest(state);
   const exagg = trueScale.checked ? 1 : exaggeration;
@@ -509,6 +531,11 @@ renderer.renderer.setAnimationLoop(() => {
   renderer.updateParticles(sim.particlePositions(), state[focusIdx * 6], state[focusIdx * 6 + 1], state[focusIdx * 6 + 2]);
   renderer.render();
   tactical.draw();
+  // Drop the boot splash once the sim has published a real frame (ephemeris loaded,
+  // bodies no longer stacked at the origin).
+  // Drop the boot splash once the sim has published a real frame (bodies no longer
+  // stacked at the origin); the fallback timeout above covers the slow/failed case.
+  if (!bootCleared && (state[sunIdx * 6] !== 0 || state[earthIdx * 6] !== 0 || state[earthIdx * 6 + 1] !== 0)) clearBoot();
 
   // HUD readouts (throttled).
   const now = performance.now();
