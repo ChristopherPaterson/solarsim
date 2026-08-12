@@ -49,6 +49,9 @@ for (const [name, , color, on] of MISSIONS) {
   renderer.loadMission(name, `data/missions/${name}.bin`, color).then(() => renderer.setMissionVisible(name, on)).catch((e) => console.warn(name, e));
 }
 renderer.loadAsteroids('data/asteroids.bin').catch((e) => console.warn('asteroids:', e));
+// Real shape models (Thomas, PDS SBN) for the lumpy Martian moons.
+renderer.loadMoonShape('Phobos', 'data/shapes/phobos.bin').catch((e) => console.warn('phobos shape:', e));
+renderer.loadMoonShape('Deimos', 'data/shapes/deimos.bin').catch((e) => console.warn('deimos shape:', e));
 // Colour-coded satellite categories (name, file, colour, dot size, legend label).
 const SAT_CATS: [string, string, number, number, string][] = [
   ['stations', 'stations', 0xffffff, 5, 'Space stations'],

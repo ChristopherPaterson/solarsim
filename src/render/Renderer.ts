@@ -125,6 +125,7 @@ export interface RenderBody {
   def: Body;
   mesh: THREE.Mesh;
   pole: THREE.Quaternion; // tilt: local +Y -> ecliptic spin pole
+  realShape?: boolean; // real baked shape mesh loaded -> scale uniformly by radius
 }
 
 export class Renderer {
@@ -431,6 +432,30 @@ export class Renderer {
     if (m) { m.line.visible = on; m.marker.visible = on; }
   }
   missionNames(): string[] { return this.missions.map((m) => m.name); }
+
+  /** Swap a body's sphere for a real baked shape mesh (tools/bake_moon_shapes.mjs).
+   *  Positions are normalised to mean radius 1, so update() scales by body radius. */
+  async loadMoonShape(id: string, url: string): Promise<void> {
+    const b = this.bodies.find((x) => x.def.id === id);
+    if (!b) return;
+    const buf = await (await fetch(url)).arrayBuffer();
+    const [nVerts, nIdx] = new Uint32Array(buf, 0, 2);
+    const pos = new Float32Array(buf, 8, nVerts * 3);
+    const uv = new Float32Array(buf, 8 + pos.byteLength, nVerts * 2);
+    const idx = new Uint32Array(buf, 8 + pos.byteLength + uv.byteLength, nIdx);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos.slice(), 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(uv.slice(), 2));
+    geo.setIndex(new THREE.BufferAttribute(idx.slice(), 1));
+    geo.computeVertexNormals();
+    // Ensure outward-facing normals (the .tab winding may be inward for us).
+    const n = geo.getAttribute('normal') as THREE.BufferAttribute;
+    let dot = 0;
+    for (let i = 0; i < nVerts; i++) dot += n.getX(i) * pos[i * 3] + n.getY(i) * pos[i * 3 + 1] + n.getZ(i) * pos[i * 3 + 2];
+    if (dot < 0) { (geo.getIndex()!.array as Uint32Array).reverse(); geo.computeVertexNormals(); }
+    b.mesh.geometry = geo;
+    b.realShape = true;
+  }
 
   /** Load a named Earth-satellite group (TLE name/line1/line2 triples) for SGP4. */
   async loadSatelliteGroup(name: string, url: string, color: number, size = 3): Promise<void> {
@@ -912,10 +937,12 @@ export class Renderer {
       const px = state[i * 6] - fx, py = state[i * 6 + 1] - fy, pz = state[i * 6 + 2] - fz;
       b.mesh.position.set(px, py, pz);
       const r = b.def.radius * (b.def.id === 'Sun' ? Math.min(exaggeration, 30) : exaggeration);
-      // Real shapes: lumpy triaxial ellipsoids (small moons), else oblate by
+      // Real baked shape mesh (Phobos/Deimos): already lumpy, scale uniformly by
+      // radius. Else triaxial ellipsoid (small moons w/o a model), else oblate by
       // flattening along the spin pole (local Y) — Saturn/Jupiter visibly squashed.
       const tri = b.def.triaxial;
-      if (tri) b.mesh.scale.set(r * tri[0], r * tri[1], r * tri[2]);
+      if (b.realShape) b.mesh.scale.setScalar(r);
+      else if (tri) b.mesh.scale.set(r * tri[0], r * tri[1], r * tri[2]);
       else b.mesh.scale.set(r, r * (1 - (b.def.flattening ?? 0)), r);
       // Live axial rotation: W = W0 + 360*(t/period) deg about the pole. Negative
       // period is retrograde (Venus, Uranus). Visible once time is running fast.
