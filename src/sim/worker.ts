@@ -27,7 +27,7 @@ let gm: number[] = []; // aligned with bodyIds
 let eph: De440 | null = null;
 let scratch = new Float64Array(0);
 // Moons (kepler-rel about a parent) vs everything else (DE440 / N-body).
-let moonOf: (null | { parentIdx: number; r0: number[]; v0: number[]; epoch: number })[] = [];
+let moonOf: (null | { parentIdx: number; r0: number[]; v0: number[]; epoch: number; period: number })[] = [];
 let moonIdx: number[] = [];   // body indices that are moons
 let nonMoon: number[] = [];   // body indices that use DE440 / the N-body system
 let nonMoonGm: number[] = [];
@@ -179,7 +179,11 @@ function computeState(): void {
   // Moons: Kepler-propagate about the parent's just-computed position (both modes).
   for (const i of moonIdx) {
     const m = moonOf[i]!, pb = m.parentIdx * FLOATS_PER_BODY, b = i * FLOATS_PER_BODY;
-    propagate(m.r0, m.v0, gm[m.parentIdx], simTdb - m.epoch, mr, mv);
+    // Propagate over <1 orbit (exact for a closed ellipse). Over the full months-
+    // long epoch->now span a short-period moon winds hundreds of revolutions and
+    // the universal-variable solver intermittently fails to converge, flinging the
+    // moon off its ellipse (the "ghost Phobos" flicker). Skip a tick if it still fails.
+    if (!propagate(m.r0, m.v0, gm[m.parentIdx], (simTdb - m.epoch) % m.period, mr, mv)) continue;
     scratch[b] = scratch[pb] + mr[0]; scratch[b + 1] = scratch[pb + 1] + mr[1]; scratch[b + 2] = scratch[pb + 2] + mr[2];
     scratch[b + 3] = scratch[pb + 3] + mv[0]; scratch[b + 4] = scratch[pb + 4] + mv[1]; scratch[b + 5] = scratch[pb + 5] + mv[2];
   }
@@ -226,7 +230,13 @@ self.onmessage = (e: MessageEvent<SimCommand>) => {
       moonOf = bodyIds.map((id) => {
         const d = SOLAR_SYSTEM.find((b) => b.id === id);
         if (!d?.relState || !d.parent) return null;
-        return { parentIdx: bodyIds.indexOf(d.parent), r0: d.relState.r0, v0: d.relState.v0, epoch: d.relState.epoch };
+        const pIdx = bodyIds.indexOf(d.parent), mu = gm[pIdx];
+        const { r0, v0, epoch } = d.relState;
+        // Orbital period from vis-viva; used to reduce the propagation span to
+        // under one revolution (see the moon loop).
+        const r0m = Math.hypot(r0[0], r0[1], r0[2]);
+        const a = 1 / (2 / r0m - (v0[0] * v0[0] + v0[1] * v0[1] + v0[2] * v0[2]) / mu);
+        return { parentIdx: pIdx, r0, v0, epoch, period: 2 * Math.PI * Math.sqrt((a * a * a) / mu) };
       });
       moonIdx = []; nonMoon = []; nonMoonGm = [];
       moonOf.forEach((m, i) => { if (m) moonIdx.push(i); else { nonMoon.push(i); nonMoonGm.push(gm[i]); } });
