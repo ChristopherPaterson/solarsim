@@ -321,6 +321,11 @@ renderer.domElement.addEventListener('click', (e) => {
   const hit = renderer.pickSatellite(e.clientX, e.clientY);
   if (hit) window.open(`https://en.wikipedia.org/wiki/Special:Search?search=${encodeURIComponent(hit.name.replace(/\s+/g, ' ').trim())}`, '_blank', 'noopener');
 });
+// Double-click a body to focus it.
+renderer.domElement.addEventListener('dblclick', (e) => {
+  const idx = renderer.pickBody(e.clientX, e.clientY);
+  if (idx !== null) focusBody(idx);
+});
 
 const soiChk = $<HTMLInputElement>('#soi');
 soiChk.addEventListener('change', () => renderer.setSoiVisible(soiChk.checked));

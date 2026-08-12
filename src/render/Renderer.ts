@@ -522,6 +522,27 @@ export class Renderer {
     return hit;
   }
 
+  /** Body index (== focus index) under the cursor, or null. Hit radius is the
+   *  body's on-screen disc (min 12px) so tiny distant planets stay clickable. */
+  pickBody(clientX: number, clientY: number): number | null {
+    const el = this.renderer.domElement, rect = el.getBoundingClientRect();
+    const px = clientX - rect.left, py = clientY - rect.top;
+    const focalPx = rect.height / (2 * Math.tan((this.camera.fov * Math.PI) / 180 / 2));
+    let best = Infinity, hit: number | null = null;
+    for (let i = 0; i < this.bodies.length; i++) {
+      const b = this.bodies[i];
+      b.mesh.getWorldPosition(this.lp);
+      const d = this.camera.position.distanceTo(this.lp);
+      this.lp.project(this.camera);
+      if (this.lp.z >= 1) continue;
+      const x = (this.lp.x * 0.5 + 0.5) * rect.width, y = (-this.lp.y * 0.5 + 0.5) * rect.height;
+      const dist = Math.hypot(x - px, y - py);
+      const rpx = Math.max(12, (b.mesh.scale.x / d) * focalPx);
+      if (dist <= rpx && d < best) { best = d; hit = i; } // tie-break: nearest camera wins
+    }
+    return hit;
+  }
+
   // SGP4-propagate each visible group and place it around Earth (TEME ≈ equatorial
   // J2000 -> ecliptic; + Earth's barycentric position). Big groups throttle to
   // ~every 4th frame (satellites barely move a pixel between frames).
